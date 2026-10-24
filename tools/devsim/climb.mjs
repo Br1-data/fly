@@ -1,0 +1,30 @@
+import { FlightModel } from '../../src/sim/flightmodel.js';
+import { Atmosphere, WEATHER_PRESETS } from '../../src/sim/atmosphere.js';
+import { getTerrain } from '../../src/world/terrain-height.js';
+import { getAircraft } from '../../src/sim/aircraft/index.js';
+import { KT, FT } from '../../src/core/units.js';
+const id = process.argv[2] || 'trainer';
+const def = getAircraft(id);
+const atm = new Atmosphere({ ...WEATHER_PRESETS.sereno, windSpeedKt: 0, gustKt: 0, turbulence: 0, tempC: 15, qnhHpa: 1013.25 });
+const fm = new FlightModel(def, getTerrain(), atm);
+fm.systems.reset(true, { inAir: true, fuel: def.fuel.defaultFraction ?? 0.8 }); fm.gear.position = fm.systems.gearPos;
+for (const e of fm.engines) e.reset(true);
+fm.updateMass();
+const DT = 1 / 240;
+fm.place({ n: -40000, e: 0, alt: 300, heading: 90, speed: 50 });
+const vy = (def.speeds.vy || def.speeds.climb) * KT;
+fm.trimLevel(vy, 0);
+for (const e of fm.engines) e.throttle = 1;
+let iErr = 0, t0alt = 0, thCmd = fm.pitch;
+for (let i = 0; i < 240 * 120; i++) {
+  const err = (fm.iasKt - vy / KT);
+  thCmd += err * 0.25 * DT;
+  iErr += (thCmd - fm.pitch) * DT;
+  fm.input.pitch = Math.max(-1, Math.min(1, 0.06 * (thCmd - fm.pitch) + 0.02 * iErr - 0.6 * fm.omega.y));
+  fm.input.roll = Math.max(-1, Math.min(1, -0.03 * fm.roll - 0.3 * fm.omega.x));
+  fm.input.yaw = Math.max(-1, Math.min(1, 6 * fm.beta));
+  fm.step(DT);
+  if (i === 240 * 60) t0alt = fm.altFt;
+  if (i % 480 === 0) console.log(`t=${(i*DT).toFixed(0)} ias=${fm.iasKt.toFixed(1)} alt=${fm.altFt.toFixed(0)} pitch=${fm.pitch.toFixed(1)} roll=${fm.roll.toFixed(1)} beta=${(fm.beta*57.3).toFixed(1)} vs=${(fm.vs/0.00508).toFixed(0)} pin=${fm.input.pitch.toFixed(2)} rin=${fm.input.roll.toFixed(2)} yin=${fm.input.yaw.toFixed(2)} rpm=${fm.engines[0].rpm?.toFixed(0)}`);
+}
+console.log(`climb: ${((fm.altFt - t0alt)).toFixed(0)} fpm`);

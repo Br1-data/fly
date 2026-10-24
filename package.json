@@ -1,0 +1,70 @@
+{
+  "name": "cieli-aperti",
+  "productName": "Cieli Aperti Flight Simulator",
+  "version": "1.0.0",
+  "description": "Simulatore di volo realistico per Windows: fisica 6DOF, cockpit completo, sistemi, autopilota, meteo e missioni.",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "author": "Cieli Aperti",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "serve": "node tools/serve.mjs",
+    "test": "node --test tests/",
+    "smoke": "node tools/smoke.mjs",
+    "dist:win": "electron-builder --win --x64",
+    "dist:win-portable": "electron-builder --win portable --x64",
+    "dist:win-zip": "electron-builder --win zip --x64"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.16.1",
+    "playwright-core": "1.63.0"
+  },
+  "build": {
+    "appId": "com.cieliaperti.flightsim",
+    "productName": "Cieli Aperti Flight Simulator",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**",
+      "index.html",
+      "styles/**",
+      "src/**",
+      "assets/**",
+      "node_modules/three/build/**",
+      "node_modules/three/examples/jsm/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Cieli Aperti Flight Simulator"
+    },
+    "portable": {
+      "artifactName": "CieliAperti-Portable-${version}.exe"
+    }
+  }
+}
