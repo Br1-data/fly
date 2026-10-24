@@ -115,6 +115,7 @@ r.setQuality(q);
 r.resize(widthCss, heightCss);
 r.setPanelFraction(f);              // fraction (0..1) of the window height covered by the 2D cockpit panel (bottom)
 r.setMarkers(markers);              // mission markers: [{type:'ring'|'waypoint'|'gate', n, e, alt, radius, heading, active, done}]
+await r.warmup(sim, onProgress);    // build terrain LOD/vegetation around the aircraft before the first frame
 r.update(sim, dtReal);              // sync camera, aircraft, environment (time of day, weather), effects
 r.render();
 // camera / views
@@ -133,23 +134,58 @@ c.setMode('full'|'mini'|'hidden');  c.cycleMode();   // W key
 c.panelFraction;                    // fraction of window height covered (0 when hidden or not in cockpit view)
 c.setView(viewMode);                // panel only visible in 'cockpit' view
 c.update(dt);  c.resize(w, h);  c.setNight(0..1);
+c.setHudVisible(bool);              // jet HUD in cockpit view (default true)
 ```
+
+The cockpit dispatches `window.dispatchEvent(new CustomEvent('cieli:click', { detail: { kind: 'switch'|'knob'|'button'|'lever' } }))`
+whenever the user operates a control; the audio engine listens and plays the matching click. Mouse events
+handled by the panel must not reach the 3D view (stopPropagation / the panel canvas captures them).
 
 ## Input (`src/input/input.js`), audio (`src/audio/audio.js`), missions (`src/missions/`)
 
 ```js
-const input = new InputManager(sim, { onAction(action, data) {} });   // UI actions (see docs/CONTROLS)
-input.attach(window, canvas3d); input.update(dt); input.setEnabled(bool);
-input.getBindingsList();            // [{group, action, label, keys: ['F5', ...]}] (Italian labels)
-input.settings; input.saveSettings(); // gamepad axis mapping / sensitivity / deadzone / invert
+const input = new InputManager(sim, { onAction(action, data) {} });
+input.attach(window, canvas3d);     // keyboard on window, mouse (look/zoom/mouse-yoke) on the 3D canvas
+input.update(dt);                   // keyboard ramps + gamepad/joystick axes -> sim.pilot; button actions
+input.setEnabled(bool);             // false while menus are open (keys not consumed)
+input.setSim(sim);                  // when a new Simulation instance is created
+input.getBindingsList();            // [{group, label, keys: ['F5', ...]}] Italian labels, for the help screen
+input.settings;                     // { axes: { roll|pitch|yaw|throttle|throttle2|brakeL|brakeR|mixture:
+                                    //   {gamepadId, axis, invert} | null }, deadzone, expo, keyboardSensitivity,
+                                    //   gamepadEnabled, mouseYoke }
+input.saveSettings(); input.resetDefaults();
+input.listGamepads();               // [{index, id, axes, buttons}]
+input.captureAxis();                // Promise<{gamepadId, index, axis} | null> — resolves when an axis is moved (8 s timeout)
+input.setAxisBinding(target, binding | null);
+input.getAxisValues();              // live {roll, pitch, yaw, throttle, ...} for the settings preview
+```
+
+UI actions delivered through `onAction(action, data)`: `'pause'`, `'menu'` (Esc), `'view-next'`, `'view-prev'`,
+`'view-cockpit'`, `'view-chase'`, `'panel-cycle'` (W), `'hud-toggle'` (H), `'map'` (M), `'checklist'` (K),
+`'sim-rate'` (R), `'restart'` (Ctrl+;), `'reset-view'` (Backspace), `'look'` `{dx, dy}` (right-drag),
+`'zoom'` `{delta}` (wheel), `'mouse-yoke'` `{enabled}` (Y), `'atis-repeat'`.
+
+```js
 
 const audio = new AudioEngine(); await audio.resume(); audio.setAircraft(def);
 audio.update(sim, dt, { view, cameraDistance }); audio.handleEvent(ev); audio.setVolume(v); audio.setMuted(b); audio.speak(text);
 
+audio.click(kind);                  // also triggered by the 'cieli:click' window event
+
 import { MISSIONS } from './missions/missions.js';
-const run = new MissionRunner(mission, sim);  // mission.setup = options for sim.setup()
-run.update(dt); run.handleEvent(ev); run.status; run.objectives; run.getMarkers(); run.debrief; run.hint;
+// MISSIONS[i] = { id, title, subtitle, aircraft, difficulty (1..5), duration, briefing (Italian), setup (sim.setup options), ... }
+import { MissionRunner } from './missions/runner.js';
+sim.setup(mission.setup); const run = new MissionRunner(mission, sim); run.start();
+run.update(dt); run.handleEvent(ev);
+run.status;        // 'running' | 'success' | 'failed'
+run.objectives;    // [{text, state: 'pending'|'active'|'done'|'failed'}]
+run.hint;          // current guidance text, e.g. "Waypoint SIERRA: 3,2 NM per 045°"
+run.getMarkers();  // markers for SceneRenderer.setMarkers
+run.debrief;       // null while running, then {success, title, score, maxScore, stars (0..3), breakdown[{label, value, points}], text}
+run.elapsed;       // seconds
+import { loadResults, saveResult } from './missions/progress.js';   // localStorage 'cieli-aperti.missions'
 import { getChecklists } from './missions/checklists.js';
+// getChecklists(def) -> [{id, title, items: [{text, value, check?: (sim) => boolean}]}]
 ```
 
 ## Main loop (`src/app.js`)
