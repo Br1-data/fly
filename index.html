@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cieli Aperti Flight Simulator</title>
+    <link rel="icon" href="./assets/icon.png" />
+    <link rel="stylesheet" href="./styles/main.css" />
+    <script type="importmap">
+      { "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body data-state="boot">
+    <canvas id="view3d" tabindex="0" aria-label="Vista 3D"></canvas>
+    <div id="cockpit-root"></div>
+    <div id="hud-root"></div>
+    <div id="screen-root"></div>
+    <div id="overlay-root"></div>
+    <noscript>Questo simulatore richiede JavaScript e WebGL2.</noscript>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
