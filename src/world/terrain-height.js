@@ -7,18 +7,29 @@ const noiseA = new Simplex2(1971);
 const noiseB = new Simplex2(4242);
 const noiseC = new Simplex2(777);
 
+const segCache = new WeakMap();
+function segInfo(pts) {
+  let info = segCache.get(pts);
+  if (!info) {
+    const segLen = [];
+    let total = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+      segLen.push(l);
+      total += l;
+    }
+    info = { segLen, total };
+    segCache.set(pts, info);
+  }
+  return info;
+}
+
 /** Distance from point to polyline plus interpolation parameter along it. */
 function polyDist(n, e, pts, out) {
   let best = Infinity;
   let bestT = 0;
   let accum = 0;
-  let total = 0;
-  const segLen = [];
-  for (let i = 0; i < pts.length - 1; i++) {
-    const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
-    segLen.push(l);
-    total += l;
-  }
+  const { segLen, total } = segInfo(pts);
   for (let i = 0; i < pts.length - 1; i++) {
     const [an, ae] = pts[i];
     const [bn, be] = pts[i + 1];
@@ -100,7 +111,9 @@ class TerrainModel {
     let land = smoothstep(1.0, 0.9, u);
     this._main = land;
     for (const isl of ISLANDS) {
-      const d = Math.hypot(n - isl.n, e - isl.e) / isl.r + 0.25 * noiseB.fbm(n / 4000 + isl.n, e / 4000, 3);
+      const raw = Math.hypot(n - isl.n, e - isl.e) / isl.r;
+      if (raw > 1.4) continue; // the noise term is bounded by 0.25: no land possible here
+      const d = raw + 0.25 * noiseB.fbm(n / 4000 + isl.n, e / 4000, 3);
       land = Math.max(land, smoothstep(1.0, 0.7, d));
     }
     // guarantee land around airports
@@ -114,6 +127,7 @@ class TerrainModel {
   /** Raw terrain height before airport flattening. */
   rawHeight(n, e) {
     const land = this.landFactor(n, e);
+    if (land === 0) return -185; // open sea: identical to the general formula below with land = 0
     const hills = 0.5 + 0.5 * noiseA.fbm(n / 15000, e / 15000, 5);
     const detail = noiseB.fbm(n / 1800, e / 1800, 4);
     const inland = smoothstep(0.15, 0.9, this._main) + 0.12 * smoothstep(0.2, 1, land - this._main);
