@@ -77,9 +77,16 @@ function liftCurve(o, alphaGeom, shift, clMax, clMin, pg) {
   const lim = pos ? clMax * o.peakScale : -clMin * o.peakScaleNeg;
   const x = Math.abs(clAtt) / Math.max(lim, 1e-3);
   const soft = x < 0.75 ? x : 0.75 + 0.25 * Math.tanh((x - 0.75) / 0.25);
-  const sigma = 1 / (1 + Math.exp(-(x - 1.12) / 0.05));
-  const clSoft = (pos ? 1 : -1) * soft * lim;
-  const clSep = 1.1 * Math.sin(2 * (alphaGeom + shift * 0.3));
+  const sigma = 1 / (1 + Math.exp(-(x - 1.12) / 0.07));
+  const sgn = pos ? 1 : -1;
+  const clSoft = sgn * soft * lim;
+  // separated flow: a post-stall plateau decaying towards flat-plate behaviour
+  const aEff = alphaGeom + shift * 0.3;
+  const aStall = (1.12 * lim) / (o.clAlpha * pg);
+  const beyond = Math.max(0, Math.abs(alphaGeom + shift - o.alpha0) - aStall);
+  const plateau = 0.8 * lim * Math.max(0, 1 - beyond / 0.55);
+  const flat = 1.05 * Math.sin(2 * aEff);
+  const clSep = Math.abs(flat) > plateau || Math.sign(flat) !== sgn ? flat : sgn * plateau;
   curveOut.stall = sigma;
   curveOut.ratio = x;
   curveOut.clAtt = clAtt;
@@ -727,9 +734,9 @@ export class FlightModel {
             time: this.time,
           };
         }
-        if (ev.vs > (L.gearVsLimit || 3.6) * 1.7) this.crash('Atterraggio troppo duro: carrello distrutto (' + Math.round(ev.vs / 0.00508) + ' ft/min)');
-        else if (ev.vs > (L.gearVsLimit || 3.6)) this.damage.gearDamaged = true;
         if (ev.surface === 'water') this.crash('Ammaraggio: il velivolo è finito in acqua');
+        else if (ev.vs > (L.gearVsLimit || 3.6) * 1.7) this.crash('Atterraggio troppo duro: carrello distrutto (' + Math.round(ev.vs / 0.00508) + ' ft/min)');
+        else if (ev.vs > (L.gearVsLimit || 3.6)) this.damage.gearDamaged = true;
       } else if (ev.type === 'strike') {
         if (ev.surface === 'water' && ev.speed > 8) this.crash('Impatto con l\'acqua');
         else if (ev.critical && (ev.vs > 2.5 || ev.speed > 25)) this.crash('Impatto al suolo (' + ev.point + ')');

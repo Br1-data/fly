@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "serve": "node tools/serve.mjs",
-    "test": "node --test tests/",
+    "test": "node --test --test-concurrency=4 \"tests/**/*.test.js\"",
     "smoke": "node tools/smoke.mjs",
     "dist:win": "electron-builder --win --x64",
     "dist:win-portable": "electron-builder --win portable --x64",
