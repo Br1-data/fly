@@ -63,11 +63,18 @@ Requisiti consigliati: Windows 10/11 64 bit, scheda video con supporto WebGL2 (q
 ## Avvio dal codice sorgente
 
 ```bash
-npm install
+npm ci
 npm start            # avvia l'app desktop (Electron)
 npm run serve        # oppure: server locale, poi aprire http://localhost:8080 nel browser
 npm test             # suite di test della fisica di volo
+npm run smoke        # verifica integrata nel browser (richiede Chrome/Chromium)
 ```
+
+La verifica `smoke` avvia e chiude un server di prova su una porta libera, esercita menu, volo libero,
+comandi, pausa, tre velivoli e avvio missione, e salva risultati e screenshot in `.smoke/`.
+Se Chrome/Chromium non viene trovato automaticamente, imposta `CHROMIUM_PATH` al suo eseguibile.
+La suite `npm test` comprende anche missioni, input, audio e regressioni dei riavvii. Node.js 24 è
+stato verificato in sviluppo; la CI usa Node.js 22. Non sono richiesti servizi esterni o chiavi API.
 
 ### Creare l'eseguibile per Windows
 

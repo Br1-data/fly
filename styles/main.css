@@ -984,7 +984,7 @@ ul.specs li {
   margin-bottom: 4px;
 }
 body[data-state='flight'] .hud-atis {
-  bottom: calc(var(--panel-h, 0px) + 20px);
+  bottom: max(90px, calc(var(--panel-h, 0px) + 20px));
 }
 
 .landing-report {

@@ -184,6 +184,9 @@ export class App {
   // ------------------------------------------------------------------ flight lifecycle
   async startFlight(opts, mission) {
     const { deps } = this;
+    this._clearFlightTimers();
+    this.map.hide();
+    this.checklist.reset();
     this._closeOverlay();
     this._showScreen(null);
     this.state = 'loading';
@@ -241,10 +244,13 @@ export class App {
   }
 
   restartFlight() {
-    if (this.flightOpts) this.startFlight(this.flightOpts, this.mission);
+    if (this.flightOpts) return this.startFlight(this.flightOpts, this.mission);
   }
 
   _endFlight() {
+    this._clearFlightTimers();
+    this.map.hide();
+    this.checklist.reset();
     this._closeOverlay();
     this.flightSim.paused = false;
     this.cockpit.setView('orbit');
@@ -254,6 +260,13 @@ export class App {
     this.mission = null;
     this._setupMenuScene();
     this.renderer.warmup(this.menuSim);
+  }
+
+  _clearFlightTimers() {
+    clearTimeout(this._crashTimer);
+    clearTimeout(this._debriefTimer);
+    this._crashTimer = null;
+    this._debriefTimer = null;
   }
 
   // ------------------------------------------------------------------ views
@@ -272,6 +285,7 @@ export class App {
     this._closeOverlay();
     this.overlay = ov;
     this.input.setEnabled(false);
+    if (!ov.live) this.audio.setMuted(true);
   }
 
   _closeOverlay() {
@@ -279,7 +293,10 @@ export class App {
       this.overlay.destroy?.();
       this.overlay = null;
     }
-    if (this.state === 'flight') this.input.setEnabled(true);
+    if (this.state === 'flight') {
+      this.input.setEnabled(true);
+      this.audio.setMuted(this.flightSim.paused || this.settings.muted);
+    }
   }
 
   togglePause(force) {
@@ -299,13 +316,13 @@ export class App {
         },
         restart: () => this.restartFlight(),
         settings: () => {
-          this._closeOverlay();
           this.state = 'flight-settings';
+          this._closeOverlay();
           this.showSettings(() => this._returnToFlightFromScreen());
         },
         controls: () => {
-          this._closeOverlay();
           this.state = 'flight-settings';
+          this._closeOverlay();
           this.showControls(() => this._returnToFlightFromScreen());
         },
         menu: () => this.showMainMenu(),
@@ -418,13 +435,12 @@ export class App {
         case 'crash':
           if (!this.crashShown) {
             this.crashShown = true;
-            setTimeout(() => this._showCrash(ev.reason), 2600);
+            this._crashTimer = setTimeout(() => this._showCrash(ev.reason), 2600);
           }
           break;
         case 'atis':
           this.lastAtisText = ev.text;
           this.hud.showAtis(ev.text);
-          this.audio.speak?.(ev.text, 'it-IT');
           break;
         case 'touchdown':
           this.landingReported = false;

@@ -13,6 +13,8 @@ import { findAirport, findRunwayEnd, airportLayouts, runwayGeometry } from '../w
 
 export const STEP = 1 / 240;
 
+const DEFAULT_PILOT = { pitch: 0, roll: 0, yaw: 0, throttle: 0, mixture: 1, brakeL: 0, brakeR: 0, reverse: false, trimRate: 0, rudTrimRate: 0, ailTrimRate: 0, throttleAxis: false };
+
 export const DEFAULT_SETTINGS = {
   crashes: true,
   gyroDrift: true,
@@ -28,7 +30,7 @@ export class Simulation {
     this.terrain = getTerrain();
     this.atm = new Atmosphere(WEATHER_PRESETS.sereno);
     this.settings = { ...DEFAULT_SETTINGS };
-    this.pilot = { pitch: 0, roll: 0, yaw: 0, throttle: 0, mixture: 1, brakeL: 0, brakeR: 0, reverse: false, trimRate: 0, rudTrimRate: 0, ailTrimRate: 0, throttleAxis: false };
+    this.pilot = { ...DEFAULT_PILOT };
     this.events = [];
     this.messages = [];
     this.acc = 0;
@@ -53,8 +55,20 @@ export class Simulation {
    *         weather, time, fuel, coldDark, payload }
    */
   setup(opts) {
+    clearTimeout(this._shutdownTimer);
+    this._sequence = null;
+    this._starterTimer = 0;
+    this.pilot = { ...DEFAULT_PILOT };
+    this.runwayEnd = null;
+    this.nav1 = new NavRadio(113.5, 110.3);
+    this.nav2 = new NavRadio(115.2, 112.4);
+    this.adf = new AdfRadio(385);
+    this.com1 = { active: 127.25, standby: 118.7, atisAirport: null };
+    this.xpdr = { code: 7000, mode: 'ALT' };
+    this.athrThrottle = null;
     this.opts = opts;
-    const def = getAircraft(opts.aircraft);
+    const baseDef = getAircraft(opts.aircraft);
+    const def = opts.payload === undefined ? baseDef : { ...baseDef, mass: { ...baseDef.mass, payload: opts.payload } };
     this.def = def;
     this.atm.setWeather(opts.weather || WEATHER_PRESETS.sereno);
     this.timeOfDay = opts.time ?? 10;
@@ -73,7 +87,6 @@ export class Simulation {
     const startFlaps = s.flaps ?? (s.type === 'final' ? def.controls.flapDetents.length - 1 : 0);
     fm.systems.reset(running, { inAir, night, fuel, flaps: startFlaps, gearDown: s.type === 'final' || s.gearDown });
     fm.systems.infiniteFuel = this.settings.unlimitedFuel;
-    if (opts.payload !== undefined) def.mass.payload = opts.payload;
     fm.updateMass();
     for (const e of fm.engines) e.reset(running, this.atm.sample(0).T);
     if (fm.fcs) fm.fcs.mode = this.settings.fbwNormalLaw ? 'normal' : 'direct';
@@ -486,10 +499,12 @@ export class Simulation {
 
   shutdown() {
     const fm = this.fm;
+    this._sequence = null;
+    clearTimeout(this._shutdownTimer);
     this.pilot.throttle = 0;
     if (fm.engines[0].type === 'piston') {
       this.pilot.mixture = 0;
-      setTimeout(() => this.command('magnetos', 0), 2500);
+      this._shutdownTimer = setTimeout(() => this.command('magnetos', 0), 2500);
     } else {
       this.engineMaster.fill(false);
     }

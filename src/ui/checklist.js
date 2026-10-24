@@ -53,6 +53,13 @@ export class ChecklistOverlay {
     this.el.classList.remove('visible');
   }
 
+  reset() {
+    this.hide();
+    this.idx = 0;
+    this.manual.clear();
+    this.rows = null;
+  }
+
   go(d) {
     const n = this.lists.length;
     if (!n) return;
