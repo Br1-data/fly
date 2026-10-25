@@ -21,12 +21,20 @@ const types = {
   '.ogg': 'audio/ogg',
 };
 
-export function startServer(p = port) {
+export function startServer(p = port, { directory = root, basePath = '/' } = {}) {
+  const serveRoot = path.resolve(directory);
+  const parts = basePath.split('/').filter(Boolean);
+  const prefix = parts.length ? '/' + parts.join('/') + '/' : '/';
   const server = http.createServer((req, res) => {
-    let url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    let url;
+    try { url = decodeURIComponent(new URL(req.url, 'http://x').pathname); }
+    catch { res.writeHead(400).end('Bad request'); return; }
+    if (!url.startsWith(prefix)) { res.writeHead(404).end('Not found'); return; }
+    url = url.slice(prefix.length);
+    if (!url) url = 'index.html';
     if (url.endsWith('/')) url += 'index.html';
-    const file = path.join(root, url);
-    if (!file.startsWith(root)) {
+    const file = path.resolve(serveRoot, url);
+    if (!file.startsWith(serveRoot + path.sep)) {
       res.writeHead(403).end();
       return;
     }
@@ -39,7 +47,10 @@ export function startServer(p = port) {
       res.end(data);
     });
   });
-  return new Promise((resolve) => server.listen(p, () => resolve(server)));
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(p, () => resolve(server));
+  });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

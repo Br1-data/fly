@@ -1,190 +1,274 @@
-// Instrument panels share the simulation's instruments and commands; no independent flight state.
+// Aircraft instruments, side consoles and pedestal operate on the real simulation state.
 import { h } from '../ui/dom.js';
 import { clamp } from '../core/math.js';
-
-const STYLE = `
-.ca-panel{position:absolute;bottom:0;left:0;right:0;color:#dce7eb;border-top:3px solid #34434a;background:linear-gradient(155deg,#243139,#111b20 55%,#17252c);box-shadow:0 -7px 24px #0008;font:11px var(--mono,monospace)}
-.ca-panel header{height:27px;padding:4px 18px;display:flex;align-items:center;gap:16px;letter-spacing:1.5px;color:#9eafb8;background:#101a20;border-bottom:1px solid #ffffff12}.ca-panel header b{color:#e9eff2;font-size:11px}.ca-panel header .ca-status{flex:1;text-align:right;color:#9bdba4;letter-spacing:.5px}.ca-panel header button{padding:2px 7px;font-size:10px;border-radius:3px}
-.ca-body{display:grid;grid-template-columns:minmax(350px,1fr) minmax(350px,430px);grid-template-rows:minmax(0,1fr);height:204px}.ca-instruments{width:100%;height:100%;display:block;min-width:0;min-height:0}.ca-controls{min-height:0;padding:6px 12px;overflow:auto;border-left:1px solid #ffffff12;display:flex;flex-direction:column;gap:7px}.ca-row{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.ca-caption{color:#8c9ea7;letter-spacing:1.3px;font-size:9px;width:100%;margin-top:2px}.ca-controls button,.ca-footer button{background:#0c151a;border:1px solid #40515c;border-radius:3px;font:10px var(--mono,monospace);padding:5px 7px;color:#bac7ce;white-space:nowrap}.ca-controls button[aria-pressed=true]{border-color:#75b58f;color:#adf3bc;box-shadow:inset 0 2px 6px #68b68922}.ca-controls button:hover,.ca-footer button:hover{background:#263e48;border-color:#9cc7d9}.ca-knob{display:flex;align-items:center;border:1px solid #354b58;border-radius:4px;overflow:hidden}.ca-knob button{border:0;border-radius:0;padding:5px 7px}.ca-knob span{min-width:66px;text-align:center;color:#7ad9ff;font-size:11px}.ca-footer{display:flex;align-items:center;gap:16px;border-top:1px solid #ffffff15;padding:6px 18px;min-height:38px;background:#10191e}.ca-lever{display:flex;align-items:center;gap:7px;white-space:nowrap}.ca-lever input{width:100px;accent-color:#a7d5df;margin:0}.ca-lever output{color:#dfeef1;min-width:34px}.ca-footer .ca-help{margin-left:auto;color:#869ca7;font-size:10px}.ca-mini .ca-body{height:65px;display:block}.ca-mini .ca-controls,.ca-mini .ca-footer{display:none}.ca-mini header{height:25px}.ca-panel[hidden]{display:none}.ca-jet-hud{position:absolute;left:calc(50% - 180px);top:12%;width:360px;height:230px;pointer-events:none!important}.ca-jet-hud[hidden]{display:none}
-@media(max-width:1050px){.ca-body{grid-template-columns:minmax(320px,1fr) 355px}.ca-controls{padding:5px 7px}.ca-controls button{padding:4px}.ca-footer{gap:10px}.ca-lever input{width:75px}.ca-help{display:none}}@media(max-height:720px){.ca-body{height:175px}.ca-controls{gap:4px}.ca-footer{min-height:34px;padding:4px 12px}}@media(max-width:700px){.ca-body{grid-template-columns:1fr;height:180px}.ca-controls{display:none}.ca-footer{flex-wrap:wrap;gap:6px}.ca-panel header{padding:4px 8px;gap:8px}.ca-panel header .ca-status{font-size:9px}.ca-lever{font-size:10px}.ca-lever input{width:65px}}
-`;
+import { AIRPORTS } from '../world/world-data.js';
 
 const num = (v, d = 0) => Number.isFinite(v) ? v.toFixed(d) : '—';
 const heading = (v) => String(Math.round(v || 0) % 360 || 360).padStart(3, '0');
+const time = (v) => `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(Math.floor(v % 60)).padStart(2, '0')}`;
 
 export class Cockpit {
   constructor(root, sim) {
-    this.root = root;
-    this.sim = sim;
-    this.mode = 'full';
-    this.view = 'orbit';
-    this.night = 0;
-    this.hudVisible = true;
-    this.switches = [];
-    this.readouts = [];
-    if (!document.getElementById('ca-cockpit-style')) {
-      document.head.appendChild(h('style#ca-cockpit-style', STYLE));
-    }
-    this.canvas = h('canvas.ca-instruments', { role: 'img', 'aria-label': 'Strumenti di volo: velocità, assetto, altitudine, prua e motore' });
-    this.controls = h('div.ca-controls', { 'aria-label': 'Comandi del cockpit' });
-    this.footer = h('div.ca-footer');
-    this.name = h('b');
-    this.status = h('span.ca-status');
+    this.root = root; this.sim = sim;
+    this.mode = 'full'; this.view = 'orbit'; this.night = 0; this.hudVisible = true;
+    this.switches = []; this.readouts = [];
+    this.consoles = { left: window.innerWidth > 1000 && window.innerHeight > 640, right: window.innerWidth > 1000 && window.innerHeight > 640 };
+    if (!document.getElementById('ca-cockpit-style')) document.head.appendChild(h('link#ca-cockpit-style', { rel: 'stylesheet', href: new URL('./cockpit.css', import.meta.url).href }));
+    this.canvas = h('canvas.ca-instruments', { role: 'img', 'aria-label': 'Strumenti di volo: velocità, assetto, altitudine, prua, virata e variometro' });
+    this.name = h('b'); this.status = h('span.ca-status');
+    this.leftToggle = h('button', { type: 'button', 'aria-label': 'Mostra o nascondi console impianti', title: 'Console sinistra: impianti, motori, luci e comandi di volo', onclick: () => this.toggleConsole('left') }, '◀ Impianti');
+    this.rightToggle = h('button', { type: 'button', 'aria-label': 'Mostra o nascondi console radio', title: 'Console destra: radio, navigazione, transponder e strumenti', onclick: () => this.toggleConsole('right') }, 'Radio ▶');
+    this.apStrip = h('div.ca-ap-strip', { 'aria-label': 'Autopilota e selettori' });
+    this.footer = h('div.ca-footer', { 'aria-label': 'Pedestallo: manetta e configurazione velivolo' });
     this.el = h('section.ca-panel', { 'aria-label': 'Pannello strumenti' },
-      h('header', this.name, h('span', 'PANNELLO DI VOLO'), this.status, h('button', { type: 'button', title: 'Cambia dimensione del pannello (W)', onclick: () => this.cycleMode() }, 'W · vista')),
-      h('div.ca-body', this.canvas, this.controls), this.footer);
+      h('header.ca-header', this.leftToggle, this.name, this.status, this.rightToggle,
+        h('button', { type: 'button', 'aria-label': 'Cambia dimensione pannello', title: 'Pannello completo, compatto o nascosto (W). Le console si riaprono dai pulsanti laterali.', onclick: () => this.cycleMode() }, 'W · vista')),
+      this.apStrip, h('div.ca-body', this.canvas), this.footer);
+    this.leftContent = h('div.ca-console-scroll'); this.rightContent = h('div.ca-console-scroll');
+    const consolePanel = (side, title, content) => h(`aside.ca-console.ca-${side}`, { 'aria-label': title },
+      h('div.ca-console-head', h('b', title), h('button', { type: 'button', 'aria-label': `Chiudi ${title}`, onclick: () => this.toggleConsole(side) }, '×')), content);
+    this.left = consolePanel('left', 'IMPIANTI / MOTORI', this.leftContent);
+    this.right = consolePanel('right', 'RADIO / NAVIGAZIONE', this.rightContent);
     this.hud = h('canvas.ca-jet-hud', { width: 720, height: 460, 'aria-hidden': 'true' });
-    root.append(this.el, this.hud);
-    for (const event of ['pointerdown', 'pointerup', 'click', 'dblclick', 'contextmenu', 'wheel']) {
-      this.el.addEventListener(event, (e) => e.stopPropagation());
+    this.shell = h('div.ca-shell', h('div.ca-canopy', { 'aria-hidden': 'true' }), h('div.ca-post.ca-post-left', { 'aria-hidden': 'true' }), h('div.ca-post.ca-post-right', { 'aria-hidden': 'true' }), this.left, this.right, this.el, this.hud);
+    root.appendChild(this.shell);
+    for (const panel of [this.el, this.left, this.right]) {
+      for (const event of ['pointerdown', 'pointerup', 'click', 'dblclick', 'contextmenu', 'wheel']) panel.addEventListener(event, (e) => e.stopPropagation());
     }
-    this.el.addEventListener('wheel', (e) => { if (!this.controls.contains(e.target)) e.preventDefault(); }, { passive: false });
+    this.canvas.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+    this.releaseHeld = () => {
+      for (const key of ['pitch', 'roll', 'yaw', 'brakeL', 'brakeR', 'reverse']) if (this.sim.cockpitInput) delete this.sim.cockpitInput[key];
+    };
+    window.addEventListener('blur', this.releaseHeld);
     this.ctx = this.canvas.getContext('2d');
     this.resize(window.innerWidth, window.innerHeight);
     this.setAircraft(sim.def || { name: 'Cieli Aperti', panel: 'ga', controls: {} });
     this._visibility();
   }
 
-  get panelFraction() {
-    return this.view === 'cockpit' && this.mode !== 'hidden' ? this.el.getBoundingClientRect().height / Math.max(1, this.height) : 0;
-  }
-
+  get panelFraction() { return this.view === 'cockpit' && this.mode !== 'hidden' ? this.el.getBoundingClientRect().height / Math.max(1, this.height) : 0; }
+  click(kind = 'switch') { window.dispatchEvent(new CustomEvent('cieli:click', { detail: { kind } })); }
   command(name, value, kind = 'switch') {
-    this.sim.command(name, value);
-    window.dispatchEvent(new CustomEvent('cieli:click', { detail: { kind } }));
-    this.update(0);
+    if (typeof name === 'function') name(); else this.sim.command(name, value);
+    this.click(kind); this.update();
   }
-
-  toggle(label, name, read, arg) {
-    const b = h('button', { type: 'button', 'aria-label': label, title: label, onclick: () => this.command(name, arg) }, label);
-    this.switches.push({ b, read });
-    return b;
+  action(label, name, arg, description = label) {
+    return h('button.ca-action', { type: 'button', title: description, 'aria-label': label, onclick: () => this.command(name, arg, 'button') }, label);
   }
-
-  knob(label, read, command, step) {
+  toggle(label, name, read, arg, description = label) {
+    const b = h('button.ca-switch', { type: 'button', 'aria-label': label, title: description, onclick: () => this.command(name, arg) }, label);
+    this.switches.push({ b, read }); return b;
+  }
+  knob(label, read, command, step, description = label) {
     const value = h('span');
-    const adjust = (delta) => {
-      if (typeof command === 'function') command(delta);
-      else this.command(command, delta, 'knob');
-    };
-    const el = h('div.ca-knob', { title: `${label}: pulsanti o rotella`, onwheel: (e) => { e.preventDefault(); adjust(e.deltaY < 0 ? step : -step); } },
+    const adjust = (delta) => { if (typeof command === 'function') command(delta); else this.command(command, delta, 'knob'); };
+    const el = h('div.ca-knob', { title: `${description}. Pulsanti o rotella per regolare.`, onwheel: (e) => { e.preventDefault(); adjust(e.deltaY < 0 ? step : -step); } },
       h('button', { type: 'button', 'aria-label': `Riduci ${label}`, onclick: () => adjust(-step) }, '−'), value,
       h('button', { type: 'button', 'aria-label': `Aumenta ${label}`, onclick: () => adjust(step) }, '+'));
-    this.readouts.push(() => { value.textContent = `${label} ${read()}`; });
+    this.readouts.push(() => value.replaceChildren(h('small.ca-knob-label', label), document.createTextNode(read())));
     return el;
   }
-
-  lever(label, read, write, { min = 0, max = 1, step = 0.01, format = (v) => `${Math.round(v * 100)}%` } = {}) {
+  lever(label, read, write, { min = 0, max = 1, step = 0.01, format = (v) => `${Math.round(v * 100)}%`, description = label, className = '' } = {}) {
     const output = h('output');
-    const input = h('input', { type: 'range', min, max, step, 'aria-label': label, oninput: (e) => {
-      write(Number(e.target.value));
-      output.textContent = format(Number(e.target.value));
-      window.dispatchEvent(new CustomEvent('cieli:click', { detail: { kind: 'lever' } }));
-    } });
-    this.readouts.push(() => {
-      const v = read();
-      if (document.activeElement !== input) input.value = v;
-      output.textContent = format(v);
-    });
-    return h('label.ca-lever', label, input, output);
+    const input = h('input', { type: 'range', min, max, step, 'aria-label': label, title: description, oninput: (e) => { write(Number(e.target.value)); output.textContent = format(Number(e.target.value)); this.click('lever'); } });
+    this.readouts.push(() => { const v = read(); if (document.activeElement !== input) input.value = v; output.textContent = format(v); });
+    return h(`label.ca-lever${className ? '.' + className : ''}`, { title: description }, h('span.ca-lever-label', label), input, output);
+  }
+  hold(label, key, value, description = label) {
+    const keys = Array.isArray(key) ? key : [key];
+    const start = () => { this.sim.cockpitInput ||= {}; for (const k of keys) this.sim.cockpitInput[k] = value; this.click('lever'); this.update(); };
+    const end = () => { if (this.sim.cockpitInput) for (const k of keys) delete this.sim.cockpitInput[k]; this.update(); };
+    const b = h('button.ca-switch', { type: 'button', 'aria-label': label, title: description,
+      onpointerdown: (e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); start(); }, onpointerup: end, onpointercancel: end, onlostpointercapture: end,
+      onkeydown: (e) => { if (['Enter', 'Space'].includes(e.code)) { e.preventDefault(); if (!e.repeat) start(); } },
+      onkeyup: (e) => { if (['Enter', 'Space'].includes(e.code)) { e.preventDefault(); end(); } }, onblur: end }, label);
+    this.switches.push({ b, read: () => keys.every((k) => this.sim.cockpitInput?.[k] === value) }); return b;
+  }
+  section(parent, title, ...children) {
+    const el = h('details.ca-section', { open: true }, h('summary', title), children); parent.appendChild(el); return el;
+  }
+  row(...children) { return h('div.ca-row', ...children); }
+  readout(read) {
+    const output = h('div.ca-readout'); let previous;
+    this.readouts.push(() => { const value = read(); if (value !== previous) { output.textContent = value; previous = value; } }); return output;
+  }
+  select(label, options, read, write) {
+    const el = h('select.ca-select', { 'aria-label': label, title: label, onchange: (e) => { write(e.target.value); this.click('knob'); } }, options.map(({ value, label: text }) => h('option', { value }, text)));
+    this.readouts.push(() => { if (document.activeElement !== el) el.value = read(); });
+    return h('label', h('div.ca-caption', label), el);
   }
 
   setAircraft(def) {
-    this.def = def;
-    this.name.textContent = def.name;
-    this.switches = [];
-    this.readouts = [];
-    this.controls.replaceChildren();
-    this.footer.replaceChildren();
-    const sim = this.sim;
-    const sys = () => sim.fm?.systems || {};
-    const ap = () => sim.ap || {};
-    const row = (...children) => this.controls.appendChild(h('div.ca-row', ...children));
-    row(h('span.ca-caption', 'IMPIANTI / AVVIAMENTO'));
-    row(this.toggle('BAT', 'battery', () => sys().battery), this.toggle('GEN', 'alternator', () => sys().alternator),
-      this.toggle('AVIONICA', 'avionics', () => sys().avionics), this.toggle('PITOT', 'pitotHeat', () => sys().pitotHeat),
-      this.toggle('LUCI', 'allLights', () => sys().lights?.nav),
-      h('button', { type: 'button', title: 'Avviamento automatico (Ctrl+E)', onclick: () => this.command('autostart', undefined, 'button') }, 'AVVIA'));
+    this.releaseHeld();
+    if (this.sim.cockpitInput) delete this.sim.cockpitInput.throttle2;
+    this.def = def; this.name.textContent = def.name; this.switches = []; this.readouts = [];
+    this.leftContent.replaceChildren(); this.rightContent.replaceChildren(); this.apStrip.replaceChildren(); this.footer.replaceChildren();
+    const s = this.sim, system = () => s.fm?.systems || {}, ap = () => s.ap || {}, engine = () => s.fm?.engines[0] || {};
+    const row = (...items) => this.row(...items);
+    const left = (title, ...items) => this.section(this.leftContent, title, ...items);
+    const right = (title, ...items) => this.section(this.rightContent, title, ...items);
+    left('01 · Alimentazione',
+      row(this.toggle('Batteria', 'battery', () => system().battery, undefined, 'Collega o scollega la batteria al bus elettrico.'), this.toggle('Generatore', 'alternator', () => system().alternator, undefined, 'Alternatore o generatori: alimentano il bus e ricaricano la batteria.')),
+      row(this.toggle('Master', 'master', () => system().battery && system().alternator, undefined, 'Comanda insieme batteria e generatore.'), this.toggle('Avionica', 'avionics', () => system().avionics, undefined, 'Alimenta radio e strumenti elettronici.')),
+      this.readout(() => `${num(system().busVolts,1)} V  ·  ${num(system().ammeter,1)} A\nBatteria ${num(system().batteryCharge*100)}%${def.panel === 'ga' ? ` · Vuoto ${num(system().vacuum,1)} inHg` : ` · Idraulica ${num(system().hydraulics*100)}%`}`));
+    const starts = [row(this.action('Avvio automatico', 'autostart', undefined, 'Esegue la sequenza completa di avviamento (Ctrl+E).'), this.action('Spegni motori', 'shutdown', undefined, 'Interrompe avviamento e alimentazione dei motori.'))];
     if (def.panel === 'ga') {
-      row(this.toggle('POMPA', 'fuelPump', () => sys().fuelPump), this.toggle('ARIA CARB.', 'carbHeat', () => sim.fm?.engines[0]?.carbHeat),
-        this.knob('MAG', () => ['OFF', 'R', 'L', 'BOTH', 'START'][sim.fm?.engines[0]?.magnetos ?? 0], (delta) => this.command('magnetos', clamp((sim.fm?.engines[0]?.magnetos ?? 0) + delta, 0, 3), 'knob'), 1),
-        this.toggle('SERBATOIO', 'fuelSelector', () => sys().fuelSelector !== 'off', 'next'));
-      // The starter switch is spring loaded and must return to BOTH when released.
-      const starter = h('button', { type: 'button', 'aria-label': 'Avviatore motore', onpointerdown: (e) => { e.currentTarget.setPointerCapture(e.pointerId); this.command('magnetos', 4); }, onpointerup: () => this.command('magnetoRelease'), onpointercancel: () => this.command('magnetoRelease') }, 'START');
-      this.controls.lastChild.appendChild(starter);
+      starts.push(row(this.knob('MAG', () => ['OFF','R','L','BOTH','START'][engine().magnetos ?? 0], (delta) => this.command('magnetos', clamp((engine().magnetos ?? 0) + delta,0,3), 'knob'), 1, 'Magneti OFF, destro, sinistro o entrambi')),
+        this.starter(), row(this.toggle('Pompa carburante', 'fuelPump', () => system().fuelPump, undefined, 'Pompa elettrica ausiliaria del carburante.'), this.toggle('Aria carburatore', 'carbHeat', () => engine().carbHeat, undefined, 'Aria calda al carburatore per prevenire o sciogliere il ghiaccio.')),
+        this.select('Selettore carburante', [{value:'off',label:'OFF · chiuso'},{value:'left',label:'LEFT · sinistro'},{value:'both',label:'BOTH · entrambi'},{value:'right',label:'RIGHT · destro'}], () => system().fuelSelector, (v) => this.command('fuelSelector',v)),
+        this.lever('Miscela', () => s.pilot.mixture, (v) => this.command('mixture',v,'lever'), {className:'ca-mixture',description:'Rapporto aria/carburante: 100% ricca, 0% taglio miscela.'}));
     } else {
-      row(this.toggle('APU', 'apuMaster', () => sys().apuMaster), this.toggle('BLEED', 'apuBleed', () => sys().apuBleed),
-        this.toggle('IGN', 'engineStartSel', () => sys().engineStartSel === 'ign'),
-        ...Array.from({ length: def.engines?.length || 1 }, (_, index) => this.toggle(`ENG ${index + 1}`, 'engineMaster', () => sim.engineMaster?.[index], { index })),
-        ...(def.panel === 'jet' ? [h('button', { type: 'button', onclick: () => this.command('starter') }, 'START')] : []));
+      if (def.systems?.apu) starts.push(row(this.toggle('APU', 'apuMaster', () => system().apuMaster, undefined, 'Avvia il gruppo ausiliario di potenza.'), this.toggle('APU bleed', 'apuBleed', () => system().apuBleed, undefined, 'Aria compressa APU per l’avviamento dei motori.')),
+        row(this.toggle('IGN / START', 'engineStartSel', () => system().engineStartSel === 'ign', undefined, 'Selettore motori fra NORM e IGN/START.')));
+      starts.push(row(...(def.engines || [{}]).map((_, index) => this.toggle(`Motore ${index+1}`, 'engineMaster', () => s.engineMaster?.[index], {index}, `Leva carburante / ENG MASTER del motore ${index+1}.`))));
+      if (!def.systems?.apu) starts.push(row(this.action('Starter turbina', 'starter', undefined, 'Aziona il motorino d’avviamento. Attivare prima batteria e leva carburante.')));
     }
-    row(h('span.ca-caption', 'AUTOPILOTA / DIRETTORE DI VOLO'));
-    row(this.toggle('AP', 'ap', () => ap().engaged), this.toggle('HDG', 'apHdg', () => ap().lateral === 'HDG'),
-      this.toggle('NAV', 'apNav', () => ap().lateral === 'NAV' || ap().armedNav), this.toggle('APR', 'apApr', () => ap().armedApr || ap().lateral === 'LOC'),
-      this.toggle('ALT', 'apAlt', () => ap().vertical === 'ALT'), this.toggle('V/S', 'apVs', () => ap().vertical === 'VS'),
-      ...(def.autopilot?.autothrottle ? [this.toggle('A/THR', 'apAthr', () => ap().athr)] : []));
-    row(this.knob('HDG', () => heading(ap().hdgBug), 'hdgBug', 1), this.knob('ALT', () => num(ap().altSel), 'altSel', 100), this.knob('V/S', () => num(ap().vsSel), 'vsSel', 100),
-      ...(def.autopilot?.autothrottle ? [this.knob('SPD', () => num(ap().spdSel), 'spdSel', 1)] : []));
-    row(h('span.ca-caption', 'RADIO / ALTIMETRO'));
-    row(this.knob('NAV', () => num(sim.nav1?.standby, 2), 'nav1Tune', 0.05), h('button', { type: 'button', 'aria-label': 'Scambia frequenze NAV1', onclick: () => this.command('nav1Swap', undefined, 'button') }, 'NAV ⇄'),
-      this.knob('QNH', () => num((sim.fm?.kollsman || 101325) / 100), 'kollsman', 1));
-    row(this.knob('COM', () => num(sim.com1?.standby, 2), 'com1Tune', 0.025), h('button', { type: 'button', 'aria-label': 'Scambia frequenze COM1', onclick: () => this.command('com1Swap', undefined, 'button') }, 'COM ⇄'),
-      this.knob('OBS', () => heading(sim.nav1?.obs), 'obs', 1));
-    this.footer.append(this.lever('MANETTA', () => sim.pilot.throttle, (v) => { sim.pilot.throttle = v; }),
-      ...(def.panel === 'ga' ? [this.lever('MISCELA', () => sim.pilot.mixture, (v) => sim.command('mixture', v))] : []),
-      this.lever('FLAP', () => sys().flapsLever || 0, (v) => sim.command('flaps', v), { min: 0, max: Math.max(1, (def.controls?.flapDetents?.length || 2) - 1), step: 1, format: (v) => def.controls?.flapDetents?.[v]?.name || String(v) }),
-      this.toggle('FRENO P', 'parkingBrake', () => sys().parkingBrake),
-      ...(def.controls?.retractableGear ? [this.toggle('CARRELLO', 'gear', () => sys().gearLever)] : []),
-      ...(def.controls?.spoilers ? [this.toggle('AEROFRENI', 'spoilers', () => sys().spoilerLever > 0)] : []),
-      h('span.ca-help', 'Frecce · assetto   F2/F3 · potenza   W · pannello'));
-    this._visibility();
-    this.update(0);
+    starts.push(this.readout(() => (s.fm?.engines || []).map((e,index) => e.type === 'piston' ? `RPM ${num(e.rpm)} · MAP ${num(e.map/3386.39,1)} inHg\nEGT ${num(e.egt)} °C · CHT ${num(e.cht)} °C\nOlio ${num(e.oilPress)} psi / ${num(e.oilTemp-273.15)} °C` : `ENG ${index+1} ${e.running?'RUN':e.startPhase.toUpperCase()} · N1 ${num(e.n1,1)}%\nN2 ${num(e.n2,1)}% · EGT ${num(e.egt-273.15)} °C\nFlusso ${num(e.fuelFlow*3600)} kg/h`).join('\n') + (def.systems?.apu ? `\nAPU ${num(system().apuN)}%` : '')));
+    left('02 · Motori e carburante', starts, this.readout(() => `Carburante ${num(system().fuelTotal)} kg\n${(system().tanks || []).map(t => `${t.name} ${num(t.qty)} kg`).join(' · ')}`));
+    left('03 · Protezione ghiaccio', row(this.toggle('Pitot caldo','pitotHeat',()=>system().pitotHeat,undefined,'Riscalda il tubo di Pitot; protegge l’indicazione di velocità.'), this.toggle('Antighiaccio','antiIce',()=>system().antiIce,undefined,'Protezione contro il ghiaccio sulla cellula.')),
+      this.readout(()=>`Ghiaccio Pitot ${num(system().pitotIce*100)}%\nGhiaccio cellula ${num(system().airframeIce*100)}%`));
+    const lights = [['nav','Navigazione','Luci rossa, verde e bianca di posizione.'],['beacon','Anticollisione','Faro rosso anticollisione.'],['strobe','Strobo','Luci bianche lampeggianti.'],['landing','Atterraggio','Fari per decollo e atterraggio.'],['taxi','Rullaggio','Illuminazione durante il rullaggio.'],['panel','Pannello','Illuminazione degli strumenti.'],['logo','Logo','Illuminazione esterna della deriva.']];
+    left('04 · Illuminazione', lights.map(([which,label,description])=> row(this.toggle(label,'light',()=>system().lights?.[which],{which},description))), row(this.action('Tutte le luci','allLights',undefined,'Accende o spegne insieme tutte le luci.')));
+    this.buildPhysicalControls(left);
+    this.buildAutopilot();
+    this.buildRadios(right);
+    this.buildPedestal();
+    this._visibility(); this.update();
   }
 
-  setMode(mode) { if (['full', 'mini', 'hidden'].includes(mode)) this.mode = mode; this._visibility(); }
-  cycleMode() { this.setMode(['full', 'mini', 'hidden'][(['full', 'mini', 'hidden'].indexOf(this.mode) + 1) % 3]); }
-  setView(view) { this.view = view; this._visibility(); }
-  setHudVisible(visible) { this.hudVisible = !!visible; this._visibility(); }
+  starter() {
+    const press = () => this.command('magnetos',4,'button'), release = () => this.command('magnetoRelease');
+    return h('button.ca-action', { type:'button', 'aria-label':'Avviatore motore', title:'Tenere premuto per avviare il motore. Rilasciando ritorna su BOTH.',
+      onpointerdown:e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);press();},onpointerup:release,onpointercancel:release,onlostpointercapture:release,
+      onkeydown:e=>{if(['Enter','Space'].includes(e.code)){e.preventDefault();if(!e.repeat)press();}},onkeyup:e=>{if(['Enter','Space'].includes(e.code)){e.preventDefault();release();}},onblur:release }, 'START · tieni premuto');
+  }
+
+  buildPhysicalControls(left) {
+    const s=this.sim, fm=()=>s.fm, controls=this.def.controls||{};
+    const yokeIndicator=h('span');
+    const release=()=>{if(s.cockpitInput){delete s.cockpitInput.pitch;delete s.cockpitInput.roll;}};
+    const move=e=>{if(!e.currentTarget.hasPointerCapture(e.pointerId))return;const r=e.currentTarget.getBoundingClientRect();s.cockpitInput||={};s.cockpitInput.roll=clamp((e.clientX-r.left-r.width/2)/(r.width/2),-1,1);s.cockpitInput.pitch=clamp((e.clientY-r.top-r.height/2)/(r.height/2),-1,1);};
+    const yoke=h('div.ca-yoke',{role:'group','aria-label':'Cloche: trascina per beccheggio e rollio',title:'Trascina: destra/sinistra per rollare, verso il basso per cabrare. Rilascia per centrare.',onpointerdown:e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);move(e);},onpointermove:move,onpointerup:release,onpointercancel:release,onlostpointercapture:release},yokeIndicator);
+    this.readouts.push(()=>{yokeIndicator.style.transform=`translate(${(s.cockpitInput?.roll||0)*50}px,${(s.cockpitInput?.pitch||0)*20}px)`;});
+    left('05 · Cloche e pedaliera', yoke,h('div.ca-yoke-label','TRASCINA LA CLOCHE · RILASCIA PER CENTRARE'),
+      this.row(this.hold('Cabra','pitch',1,'Cloche indietro: tieni premuto per cabrare.'),this.hold('Picchia','pitch',-1,'Cloche avanti: tieni premuto per picchiare.')),
+      this.row(this.hold('Ala sinistra','roll',-1,'Tieni premuto per rollare a sinistra.'),this.hold('Ala destra','roll',1,'Tieni premuto per rollare a destra.')),
+      this.row(this.hold('Pedale sx','yaw',-1,'Tieni premuto il pedale sinistro.'),this.hold('Pedale dx','yaw',1,'Tieni premuto il pedale destro.')),
+      this.row(this.hold('Freno sx','brakeL',1,'Tieni premuto per frenare la ruota sinistra.'),this.hold('Freno dx','brakeR',1,'Tieni premuto per frenare la ruota destra.')),
+      this.row(this.hold('Freni insieme',['brakeL','brakeR'],1,'Tieni premuto per frenare entrambe le ruote.')),
+      ...(controls.reversers ? [this.row(this.hold('Inversori','reverse',true,'Tieni premuto per inserire gli inversori di spinta. Usare dopo il contatto a terra.'))] : []));
+    left('06 · Compensatori',
+      this.lever('Trim beccheggio',()=>fm()?.input.elevTrim||0,v=>{if(fm())fm().input.elevTrim=v;},{min:-1,max:1,format:v=>`${num(v*100)}%`,className:'ca-trim',description:'Compensatore longitudinale: positivo a cabrare. Nella legge normale Airbus il trim è automatico.'}),
+      this.lever('Trim rollio',()=>fm()?.input.ailTrim||0,v=>{if(fm())fm().input.ailTrim=v;},{min:-1,max:1,format:v=>`${num(v*100)}%`,className:'ca-trim',description:'Compensa il rollio: positivo verso destra.'}),
+      this.lever('Trim imbardata',()=>fm()?.input.rudTrim||0,v=>{if(fm())fm().input.rudTrim=v;},{min:-1,max:1,format:v=>`${num(v*100)}%`,className:'ca-trim',description:'Compensa la pedaliera: positivo verso destra.'}),
+      this.row(this.action('Trim neutri',()=>{if(fm())for(const key of ['elevTrim','ailTrim','rudTrim'])fm().input[key]=0;},undefined,'Azzera i tre compensatori.')));
+    const extra=[];
+    if(controls.spoilers)extra.push(this.lever('Aerofreni',()=>fm()?.systems.spoilerLever||0,v=>this.command('spoilers',v,'lever'),{description:'Comando proporzionale degli aerofreni / spoiler.'}),this.row(this.toggle('Arma spoiler','spoilers',()=>fm()?.systems.spoilersArmed,'arm','Arma l’estensione automatica degli spoiler all’atterraggio.')));
+    if(controls.autobrake)extra.push(this.select('Autobrake',[{value:'0',label:'OFF'},{value:'1',label:'LO'},{value:'2',label:'MED'},{value:'3',label:'MAX'}],()=>String(fm()?.systems.autobrake||0),v=>this.command('autobrake',Number(v))));
+    if(controls.smoke)extra.push(this.row(this.toggle('Fumogeni tricolori','smoke',()=>fm()?.systems.smoke,undefined,'Accende o spegne i fumogeni del jet acrobatico.')));
+    extra.push(this.readout(()=>`Flap ${num((fm()?.systems.flaps||0)*100)}% · Slat ${num((fm()?.systems.slats||0)*100)}%\nCarrello ${num((fm()?.systems.gearPos||0)*100)}%${controls.spoilers?` · Spoiler ${num((fm()?.systems.spoilers||0)*100)}%`:''}`));
+    left('07 · Configurazione',extra,...(!controls.retractableGear?[h('p.ca-note','Carrello fisso su questo velivolo.')]:[]));
+  }
+
+  buildAutopilot() {
+    const s=this.sim,a=()=>s.ap||{};
+    const modes=[['AP','ap',()=>a().engaged,'Inserisce o disinserisce l’autopilota (Z).'],['HDG','apHdg',()=>a().lateral==='HDG','Segue la prua selezionata.'],['NAV','apNav',()=>a().lateral==='NAV'||a().armedNav,'Arma o segue la navigazione NAV1/GPS.'],['APR','apApr',()=>a().armedApr||a().lateral==='LOC','Arma l’avvicinamento ILS: localizzatore e glideslope.'],['ALT','apAlt',()=>a().vertical==='ALT','Mantiene o cattura la quota.'],['V/S','apVs',()=>a().vertical==='VS','Segue la velocità verticale selezionata.'],['FLC','apFlc',()=>a().vertical==='FLC','Varia la quota mantenendo la velocità selezionata.']];
+    this.apStrip.append(...modes.map(([label,command,read,description])=>this.toggle(label,command,read,undefined,description)),
+      this.knob('HDG',()=>heading(a().hdgBug),'hdgBug',1,'Prua selezionata in gradi'),this.knob('ALT',()=>num(a().altSel),'altSel',100,'Quota selezionata in piedi'),this.knob('V/S',()=>num(a().vsSel),'vsSel',100,'Velocità verticale selezionata in piedi/minuto'),this.knob('SPD',()=>num(a().spdSel),'spdSel',1,'Velocità selezionata in nodi per FLC e autothrottle'));
+    const section=this.section(this.rightContent,'01 · Direttore di volo',
+      this.row(this.toggle('FD',()=>{if(s.ap)s.ap.fd=!s.ap.fd;},()=>a().fd,undefined,'Direttore di volo: calcola le indicazioni di guida senza comandare l’aereo.'),this.action('AP DISCONNECT','apDisconnect',undefined,'Disinserisce immediatamente l’autopilota.')),
+      this.row(this.toggle('NAV1 / GPS','apNavSource',()=>a().navSource==='GPS',undefined,'Sceglie la sorgente del modo NAV: radio NAV1 o piano GPS.'),this.action('HDG SYNC','hdgBug','sync','Copia la prua attuale nel selettore HDG.')),
+      ...(this.def.autopilot?.autothrottle?[this.row(this.toggle('A/THR','apAthr',()=>a().athr,undefined,'Autothrottle: controlla la spinta per mantenere la velocità.'))]:[]),
+      this.readout(()=>`Sorgente ${a().navSource||'NAV1'} · ${a().engaged?'AP ON':'AP OFF'}\n${a().lateral||'ROL'} / ${a().vertical||'PIT'}${a().armedNav?' · NAV ARM':''}${a().armedApr?' · APR ARM':''}${a().armedAlt?' · ALT ARM':''}\nA/THR ${a().athr?a().athrMode:'OFF'}${a().autoland&&a().autoland!=='OFF'?` · ${a().autoland}`:''}`));
+    // Details outside the main strip keep every mode reachable even on narrow displays.
+    section.appendChild(h('p.ca-note','I selettori HDG, ALT, V/S e SPD scorrono orizzontalmente sopra gli strumenti.'));
+  }
+
+  buildRadios(right) {
+    const s=this.sim;
+    for(const index of [1,2]) {
+      const key=`nav${index}`,radio=()=>s[key];
+      right(`0${index+1} · NAV ${index}`,
+        this.readout(()=>`ATTIVA ${num(radio().active,2)} MHz\nSTBY ${num(radio().standby,2)} MHz\n${radio().valid?`${radio().ident} · DME ${num(radio().dme,1)} NM\nCDI ${num(radio().cdi,2)}${radio().gsValid?' · GS '+num(radio().gs,2):''}`:'NESSUN SEGNALE'}`),
+        this.row(this.knob(`NAV${index}`,()=>num(radio().standby,2),`${key}Tune`,.05,`Frequenza standby NAV${index} in MHz`)),
+        this.row(this.action(`Scambia NAV${index}`,`${key}Swap`,undefined,`Scambia frequenze attiva e standby NAV${index}.`),this.knob(`OBS${index}`,()=>heading(radio().obs),index===1?'obs':'obs2',1,'Rotta OBS del VOR in gradi')));
+    }
+    right('04 · COM 1',this.readout(()=>`ATTIVA ${num(s.com1.active,3)} MHz\nSTBY ${num(s.com1.standby,3)} MHz`),this.row(this.knob('COM1',()=>num(s.com1.standby,3),'com1Tune',.025,'Frequenza standby COM1'),this.action('Scambia COM1','com1Swap',undefined,'Attiva la frequenza standby. Sintonizza un ATIS per ricevere il meteo.')));
+    right('05 · ADF / NDB',this.readout(()=>`ATTIVA ${num(s.adf.active)} kHz\nSTBY ${num(s.adf.standby)} kHz\n${s.adf.valid?`${s.adf.ident} · Ril. ${num(s.adf.relBearing)}°`:'NESSUN SEGNALE'}`),this.row(this.knob('ADF',()=>num(s.adf.standby),'adfTune',1,'Frequenza standby ADF in kHz'),this.action('Scambia ADF','adfSwap',undefined,'Scambia le frequenze ADF.')));
+    const digits=h('div.ca-xpdr-digits');
+    for(let index=0;index<4;index++) {
+      const select=h('select',{'aria-label':`Cifra transponder ${index+1}`,title:`Cifra ${index+1} del codice transponder, da 0 a 7.`,onchange:e=>{const code=String(s.xpdr.code).padStart(4,'0').split('');code[index]=e.target.value;this.command('xpdr',Number(code.join('')));}},Array.from({length:8},(_,n)=>h('option',{value:String(n)},String(n))));
+      this.readouts.push(()=>{if(document.activeElement!==select)select.value=String(s.xpdr.code).padStart(4,'0')[index];});digits.appendChild(select);
+    }
+    right('06 · Transponder',digits,this.row(this.action('Modo XPDR','xpdr','mode','Cicla OFF, STBY e ALT (trasmissione con quota).')),this.readout(()=>`XPDR ${String(s.xpdr.code).padStart(4,'0')} · ${s.xpdr.mode}`));
+    let destination=AIRPORTS[0].icao;
+    const gpsSelect=h('select.ca-select',{'aria-label':'Destinazione GPS',title:'Scegli l’aeroporto per il volo diretto.',onchange:e=>{destination=e.target.value;}},AIRPORTS.map(ap=>h('option',{value:ap.icao},`${ap.icao} · ${ap.name}`)));
+    right('07 · Navigatore GPS',gpsSelect,this.row(this.action('Diretto GPS',()=>{const ap=AIRPORTS.find(ap=>ap.icao===destination);if(ap)this.sim.command('gpsDirect',{id:ap.icao,n:ap.n,e:ap.e});},undefined,'Attiva il diretto all’aeroporto selezionato; scegliere GPS come sorgente NAV.')),
+      this.readout(()=>{const g=s.gps;return g.current?`DEST ${g.current.id}\nPRUA ${heading(g.brg)} · ${num(g.dist/1852,1)} NM\nXTK ${num(g.xtk)} m · ETE ${time(g.ete||0)}`:'GPS · nessuna destinazione';}));
+    right('08 · Altimetro e girobussola',this.row(this.knob('QNH',()=>num((s.fm?.kollsman||101325)/100),'kollsman',1,'Pressione altimetrica in hPa')),
+      this.row(this.action('QNH locale','kollsman','local','Imposta il QNH effettivo della regione.'),this.action('STD 1013','kollsman','std','Imposta la pressione standard 1013,25 hPa.')),
+      this.row(this.knob('DG',()=>heading(s.instruments.dg),'dgAdjust',1,'Correzione manuale della girobussola'),this.action('DG SYNC','dgSync',undefined,'Allinea la girobussola alla bussola magnetica.')),
+      this.readout(()=>`Bussola ${heading(s.instruments.compass)}°\nGiro ${num((s.fm?.systems.gyroSpin||0)*100)}% · OAT ${num(s.fm?.oatC)} °C`));
+    right('09 · Cronometro',this.readout(()=>`TEMPO ${time(s.instruments.timer)} · ${s.instruments.timerRun?'IN CORSO':'FERMO'}`),this.row(this.toggle('Avvia / ferma','timer',()=>s.instruments.timerRun,undefined,'Avvia o arresta il cronometro.'),this.action('Azzera timer','timer','reset','Ferma e azzera il cronometro.')));
+  }
+
+  buildPedestal() {
+    const s=this.sim,sys=()=>s.fm?.systems||{},def=this.def;
+    this.footer.append(this.lever('MANETTA',()=>s.pilot.throttle,v=>{s.pilot.throttle=v;},{className:'ca-throttle',description:'Potenza del motore 1 (o di entrambi con manette sincronizzate).'}));
+    if((def.engines?.length||1)>1)this.footer.append(this.lever('MANETTA 2',()=>s.cockpitInput?.throttle2??s.pilot.throttle2??s.pilot.throttle,v=>{s.cockpitInput||={};s.cockpitInput.throttle2=v;s.pilot.throttle2=v;},{className:'ca-throttle',description:'Comando indipendente del motore 2. La tastiera riporta le manette alla sincronizzazione.'}),this.toggle('Manette unite',()=>{if(s.cockpitInput?.throttle2!==undefined){delete s.cockpitInput.throttle2;delete s.pilot.throttle2;}else{s.cockpitInput||={};s.cockpitInput.throttle2=s.pilot.throttle;}},()=>s.cockpitInput?.throttle2===undefined,undefined,'Unisce le manette o abilita la regolazione indipendente del motore 2.'));
+    if(def.panel==='ga')this.footer.append(this.lever('MISCELA',()=>s.pilot.mixture,v=>this.command('mixture',v,'lever'),{className:'ca-mixture',description:'Miscela motore: ricca 100%, taglio 0%.'}));
+    this.footer.append(this.lever('FLAP',()=>sys().flapsLever||0,v=>this.command('flaps',v,'lever'),{min:0,max:Math.max(1,(def.controls?.flapDetents?.length||2)-1),step:1,format:v=>def.controls?.flapDetents?.[v]?.name||String(v),description:'Selettore delle posizioni flap del velivolo.'}),this.toggle('FRENO P','parkingBrake',()=>sys().parkingBrake,undefined,'Inserisce o rilascia il freno di parcheggio (Ctrl+.).'));
+    if(def.controls?.retractableGear)this.footer.append(this.toggle('CARRELLO','gear',()=>sys().gearLever,undefined,'Estende o retrae il carrello (G). La retrazione è inibita a terra.'));
+    if(def.controls?.spoilers)this.footer.append(this.toggle('AEROFRENI','spoilers',()=>sys().spoilerLever>0,undefined,'Estende o ritrae gli aerofreni. La regolazione e l’armamento sono sulla console sinistra.'));
+  }
+
+  setMode(mode) {
+    if(!['full','mini','hidden'].includes(mode))return;
+    this.mode=mode;
+    if(mode==='mini')this.consoles={left:false,right:false};
+    if(mode==='full'&&this.width>1000&&this.height>640)this.consoles={left:true,right:true};
+    if(mode==='hidden')this.releaseHeld();
+    this._visibility();
+  }
+  cycleMode(){this.setMode(['full','mini','hidden'][(['full','mini','hidden'].indexOf(this.mode)+1)%3]);}
+  setView(view){this.view=view;if(view!=='cockpit')this.releaseHeld();this._visibility();}
+  setHudVisible(visible){this.hudVisible=!!visible;this._visibility();}
+  toggleConsole(side){this.consoles[side]=!this.consoles[side];if(this.consoles[side]&&(this.width<=1000||this.height<=640))this.consoles[side==='left'?'right':'left']=false;this._visibility();}
   setNight(night) {
     this.night = clamp(night, 0, 1);
-    this.el.style.filter = `brightness(${1 - this.night * (this.sim.fm?.systems.lights.panel ? 0.08 : 0.28)})`;
+    this.shell.style.filter = `brightness(${1 - this.night * (this.sim.fm?.systems.lights.panel ? 0.08 : 0.18)})`;
   }
-  resize(width, height) { this.width = width; this.height = height; }
-
-  _visibility() {
-    this.el.hidden = this.view !== 'cockpit' || this.mode === 'hidden';
-    this.el.classList.toggle('ca-mini', this.mode === 'mini');
-    this.hud.hidden = this.view !== 'cockpit' || this.def?.panel !== 'jet' || !this.hudVisible;
-    document.documentElement.style.setProperty('--panel-h', `${this.el.hidden ? 0 : this.el.getBoundingClientRect().height}px`);
+  resize(width,height){const wasCompact=this.width<=1000||this.height<=640;this.width=width;this.height=height;const compact=width<=1000||height<=640;if(this.shell&&compact&&!wasCompact)this.consoles={left:false,right:false};if(this.shell)this._visibility();}
+  _visibility(){
+    const visible=this.view==='cockpit'&&this.mode!=='hidden';
+    this.shell.hidden=!visible;this.shell.classList.toggle('ca-mini',this.mode==='mini');
+    this.left.hidden=!this.consoles.left;this.right.hidden=!this.consoles.right;
+    this.leftToggle.setAttribute('aria-expanded',String(this.consoles.left));this.rightToggle.setAttribute('aria-expanded',String(this.consoles.right));
+    this.hud.hidden=this.def?.panel!=='jet'||!this.hudVisible;
+    this.updateLayoutVariables();
   }
-
-  update() {
-    const { fm, instruments: i, ap } = this.sim;
-    if (!fm) return;
-    document.documentElement.style.setProperty('--panel-h', `${this.el.hidden ? 0 : this.el.getBoundingClientRect().height}px`);
-    if (!this.el.hidden) {
-      for (const { b, read } of this.switches) b.setAttribute('aria-pressed', String(!!read()));
-      for (const read of this.readouts) read();
-      const sys = fm.systems;
-      const engine = fm.engines[0];
-      this.status.textContent = `${sys.busVolts.toFixed(0)} V · ${sys.parkingBrake ? 'FRENO INSERITO' : 'FRENO LIBERO'} · ${ap.engaged ? `AP ${ap.lateral} ${ap.vertical}` : 'VOLO MANUALE'}`;
-      this.status.style.color = sys.parkingBrake || sys.busVolts < 18 ? '#ffbd6a' : '#9bdba4';
-      const rect = this.canvas.getBoundingClientRect();
-      // Loading screens hide the complete cockpit root; defer drawing until layout exists.
-      if (rect.width < 100 || rect.height < 40) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.max(1, rect.width), hh = Math.max(1, rect.height);
-      if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(hh * dpr)) {
-        this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(hh * dpr);
-      }
-      const c = this.ctx;
-      c.setTransform(dpr, 0, 0, dpr, 0, 0);
-      c.clearRect(0, 0, w, hh);
-      if (this.mode === 'mini') this.drawMini(c, w, hh, i, fm);
-      else if (this.def.panel === 'ga') this.drawAnalog(c, w, hh, i, fm, engine);
-      else this.drawGlass(c, w, hh, i, fm);
-    }
-    if (!this.hud.hidden) this.drawHud(i, fm);
+  updateLayoutVariables(){
+    const visible=!this.shell.hidden;
+    document.documentElement.style.setProperty('--panel-h',`${visible?this.el.getBoundingClientRect().height:0}px`);
+    const left=visible&&!this.left.hidden?this.left.getBoundingClientRect().width:0,right=visible&&!this.right.hidden?this.right.getBoundingClientRect().width:0;
+    document.documentElement.style.setProperty('--console-w',`${Math.max(left,right)}px`);
+    document.documentElement.style.setProperty('--console-left-w',`${left}px`);
+    document.documentElement.style.setProperty('--console-right-w',`${right}px`);
+  }
+  update(){
+    const{fm,instruments:i,ap}=this.sim;if(!fm||this.shell.hidden)return;
+    this.updateLayoutVariables();
+    for(const{b,read}of this.switches)b.setAttribute('aria-pressed',String(!!read()));
+    for(const read of this.readouts)read();
+    const sys=fm.systems;
+    this.status.textContent=`${num(sys.busVolts)} V · ${sys.parkingBrake?'FRENO P':'LIBERO'} · ${ap.engaged?`AP ${ap.lateral}/${ap.vertical}`:'MANUALE'}`;
+    this.status.style.color=sys.parkingBrake||sys.busVolts<18?'#ffbd6a':'#9bdba4';
+    const rect=this.canvas.getBoundingClientRect();if(rect.width<100||rect.height<40)return;
+    const dpr=Math.min(window.devicePixelRatio||1,2),w=rect.width,hh=rect.height;
+    if(this.canvas.width!==Math.round(w*dpr)||this.canvas.height!==Math.round(hh*dpr)){this.canvas.width=Math.round(w*dpr);this.canvas.height=Math.round(hh*dpr);}
+    const c=this.ctx;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,hh);
+    if(this.mode==='mini')this.drawMini(c,w,hh,i,fm);else if(this.def.panel==='ga')this.drawAnalog(c,w,hh,i,fm,fm.engines[0]);else this.drawGlass(c,w,hh,i,fm);
+    if(!this.hud.hidden)this.drawHud(i,fm);
   }
 
   text(c, text, x, y, size = 11, color = '#dce7eb', align = 'center') {
@@ -239,6 +323,16 @@ export class Cockpit {
       if (pitch % 10 === 0) this.text(c, String(Math.abs(pitch)), size + 10, yy, 8, '#fff');
     }
     c.restore();
+    if (this.sim.ap?.fd && this.sim.fm?.systems.avionicsPowered) {
+      const dx = clamp(this.sim.ap.phiCmd - i.aiRoll, -30, 30) * w / 100;
+      const dy = -clamp(this.sim.ap.thetaCmd - i.aiPitch, -15, 15) * hh / 50;
+      c.strokeStyle = '#ff83e3';
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(dx, -hh * 0.25); c.lineTo(dx, hh * 0.25);
+      c.moveTo(-w * 0.28, dy); c.lineTo(w * 0.28, dy);
+      c.stroke();
+    }
     c.strokeStyle = '#ffe876'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(-w*.3, 0); c.lineTo(-w*.10, 0); c.lineTo(-w*.07, 5); c.lineTo(0,0); c.lineTo(w*.07,5); c.lineTo(w*.10,0); c.lineTo(w*.3,0); c.stroke();
     this.text(c, '▼', 0, -hh * .42, 11, '#ffdf6e');
     c.restore();
@@ -283,7 +377,7 @@ export class Cockpit {
       c.fillStyle='#20373b';c.fillRect(xx,y+11,tx-xx,3);c.fillStyle='#8ef7ae';c.fillRect(xx,y+11,(tx-xx)*clamp(engine.n1/100,0,1),3);
     });
     this.text(c,`CARB. ${num(fm.systems.fuelTotal)} KG`,xx,hh-62,11,'#d5e5e9','left');
-    this.text(c,`TRAIN ${fm.systems.gearPos>.98?'▼ ▼ ▼':fm.systems.gearPos<.02?'RENT.':'TRANSIT'}`,xx,hh-41,11,fm.systems.gearPos>.98?'#91eea8':'#ffd06d','left');
+    this.text(c,`CARRELLO ${fm.systems.gearPos>.98?'▼ ▼ ▼':fm.systems.gearPos<.02?'SU':'TRANSITO'}`,xx,hh-41,11,fm.systems.gearPos>.98?'#91eea8':'#ffd06d','left');
     this.text(c,`FLAP ${this.def.controls.flapDetents[fm.systems.flapsLever].name}`,xx,hh-21,11,'#d5e5e9','left');
   }
 

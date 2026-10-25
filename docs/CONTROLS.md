@@ -30,6 +30,7 @@ mantengono il normale comportamento della tastiera.
 | Luci | L |
 | Fumogeni del Freccia | Ctrl + Shift + S |
 | Pausa / menu di pausa | P / Esc |
+| Aiuto, comandi e glossario | F12 |
 | Vista successiva / precedente | S / Shift + S |
 | Cockpit / vista esterna | F9 / F10 |
 | Pannello completo / compatto / nascosto | W |
@@ -58,3 +59,18 @@ l’asse desiderato entro otto secondi. Le assegnazioni vengono salvate nel brow
 
 Quando il volo perde il focus o viene aperto un menu, i comandi momentanei vengono rilasciati.
 La manetta resta nella posizione selezionata.
+
+## Console laterali e manuale di bordo
+
+Nella vista cockpit usa **Impianti** per la console sinistra e **Radio** per quella destra.
+Ogni sezione si può scorrere e richiudere. Anche su schermi piccoli tutti i comandi rimangono
+raggiungibili: i pulsanti alternano le console senza cambiare vista di volo.
+
+Le console comprendono luci singole, protezioni contro il ghiaccio, avviamento, trim, cloche,
+pedaliera e freni; per il liner sono disponibili anche due manette indipendenti. Tieni premuti
+i comandi momentanei e rilasciali per tornare al centro. I controlli fisici di tastiera e gamepad
+hanno la precedenza sui comandi della console. Le manette conservano la posizione quando apri un menu.
+
+**Aiuto / F12** contiene la lista aggiornata di tastiera, mouse, gamepad e comandi cockpit,
+oltre a una guida pratica e al glossario. La ricerca funziona anche sulle spiegazioni. Durante
+la lettura il volo è in pausa; alla chiusura viene ripristinato lo stato precedente.

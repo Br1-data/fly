@@ -31,6 +31,7 @@ export class Simulation {
     this.atm = new Atmosphere(WEATHER_PRESETS.sereno);
     this.settings = { ...DEFAULT_SETTINGS };
     this.pilot = { ...DEFAULT_PILOT };
+    this.cockpitInput = {};
     this.events = [];
     this.messages = [];
     this.acc = 0;
@@ -59,6 +60,7 @@ export class Simulation {
     this._sequence = null;
     this._starterTimer = 0;
     this.pilot = { ...DEFAULT_PILOT };
+    this.cockpitInput = {};
     this.runwayEnd = null;
     this.nav1 = new NavRadio(113.5, 110.3);
     this.nav2 = new NavRadio(115.2, 112.4);

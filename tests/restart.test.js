@@ -11,6 +11,7 @@ test('a new flight clears controls, engine sequences and departure-specific navi
   sim.command('autostart');
   sim.command('starter');
   Object.assign(sim.pilot, { pitch: 1, roll: -1, yaw: 0.4, reverse: true, brakeL: 1, trimRate: 1, throttle2: 1 });
+  sim.cockpitInput = { roll: 1, brakeL: 1, reverse: true, throttle2: 0.8 };
   sim.nav1.active = 109.5;
   sim.xpdr.code = 1234;
   sim.setup(parking);
@@ -22,6 +23,7 @@ test('a new flight clears controls, engine sequences and departure-specific navi
   for (const key of ['pitch', 'roll', 'yaw', 'brakeL', 'trimRate']) assert.equal(sim.pilot[key], 0);
   assert.equal(sim.pilot.reverse, false);
   assert.equal(sim.pilot.throttle2, undefined);
+  assert.deepEqual(sim.cockpitInput, {});
   sim.update(0.1);
   assert.ok(sim.fm.engines[0].running);
 });

@@ -15,7 +15,8 @@ const executablePath = candidates.find((p) => p && fs.existsSync(p));
 assert.ok(executablePath, 'Install Chromium/Chrome or set CHROMIUM_PATH to its executable.');
 const output = path.join(root, '.smoke');
 fs.mkdirSync(output, { recursive: true });
-const server = await startServer(0);
+const basePath = process.env.SMOKE_BASE_PATH || '/';
+const server = await startServer(0, { directory: process.env.SMOKE_ROOT || root, basePath });
 let browser;
 let page;
 const errors = [];
@@ -34,7 +35,7 @@ try {
     await page.locator('.loading-screen').waitFor({ state: 'detached' });
   };
   const fatal = async () => check('Nessun errore nel browser', errors.length === 0 && await page.locator('#fatal-error').count() === 0);
-  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.goto(`http://127.0.0.1:${server.address().port}/${basePath.split('/').filter(Boolean).join('/')}${basePath === '/' ? '' : '/'}`);
   await ready('menu');
   check('Menu iniziale e scena 3D', await page.evaluate(() => window.__cieli.renderer.getStats().triangles > 0));
   await page.screenshot({ path: path.join(output, 'menu.png') });
@@ -70,7 +71,51 @@ try {
   await page.getByRole('button', { name: /Riprendi/ }).click();
   await ready('flight');
   check('Ripresa del volo', await page.evaluate(() => !window.__cieli.flightSim.paused));
+  await page.getByRole('button', { name: /Aiuto.*F12/ }).click();
+  await page.getByRole('dialog', { name: 'Aiuto al volo' }).waitFor();
+  check('Aiuto: mette in pausa e disabilita i comandi', await page.evaluate(() => window.__cieli.flightSim.paused && !window.__cieli.input.enabled && document.getElementById('cockpit-root').inert));
+  await page.getByRole('tab', { name: 'Glossario' }).click();
+  await page.getByRole('searchbox').fill('QNH');
+  check('Glossario: ricerca e spiegazione del QNH', await page.locator('.help-term').count() > 0 && (await page.locator('.help-term').first().textContent()).toLowerCase().includes('pressione'));
+  await page.screenshot({ path: path.join(output, 'help-glossary.png') });
+  await page.getByRole('tab', { name: 'Comandi', exact: true }).click();
+  await page.getByRole('searchbox').fill('NAV2');
+  check('Aiuto: include comandi del cockpit senza scorciatoia', await page.locator('.help-cockpit-item').count() > 0);
+  await page.keyboard.press('F12');
+  check('F12 funziona nei campi e ripristina il volo', await page.evaluate(() => !window.__cieli.overlay && !window.__cieli.flightSim.paused && window.__cieli.input.enabled));
+  await page.keyboard.press('KeyP');
+  await page.keyboard.press('F12');
+  await page.keyboard.press('Escape');
+  check('Aiuto: conserva la pausa precedente', await page.evaluate(() => window.__cieli.flightSim.paused && window.__cieli.input.enabled));
+  await page.keyboard.press('KeyP');
+  await page.keyboard.press('Escape');
+  await page.locator('.overlay.visible .dialog.pause').waitFor();
+  await page.locator('.overlay.visible').getByRole('button', { name: /Aiuto e glossario/ }).click();
+  await page.getByRole('dialog', { name: 'Aiuto al volo' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.overlay.visible .dialog.pause').waitFor();
+  check('Aiuto: torna al menu di pausa', await page.locator('.overlay.visible .dialog.pause').count() === 1 && await page.evaluate(() => window.__cieli.flightSim.paused && !window.__cieli.input.enabled));
+  await page.locator('.overlay.visible').getByRole('button', { name: /Riprendi/ }).click();
   await page.screenshot({ path: path.join(output, 'trainer.png') });
+  await page.setViewportSize({ width: 800, height: 640 });
+  await page.getByRole('button', { name: 'Mostra o nascondi console impianti' }).click();
+  await page.getByRole('button', { name: 'Antighiaccio', exact: true }).click();
+  check('Console sinistra accessibile su schermi piccoli', await page.evaluate(() => window.__cieli.flightSim.fm.systems.antiIce));
+  await page.getByRole('button', { name: 'Mostra o nascondi console radio' }).click();
+  check('Console compatte: alternanza senza perdere comandi', await page.locator('.ca-right').isVisible() && !await page.locator('.ca-left').isVisible());
+  const navStandby = await page.evaluate(() => window.__cieli.flightSim.nav2.standby);
+  await page.getByRole('button', { name: 'Aumenta NAV2', exact: true }).click();
+  await page.getByRole('button', { name: 'Scambia NAV2', exact: true }).click();
+  check('Console radio: sintonia e scambio NAV2', Math.abs(await page.evaluate(() => window.__cieli.flightSim.nav2.active) - navStandby - 0.05) < 0.001);
+  await page.getByRole('combobox', { name: 'Cifra transponder 1' }).selectOption('4');
+  check('Console radio: transponder utilizzabile', await page.evaluate(() => window.__cieli.flightSim.xpdr.code === 4000));
+  await page.screenshot({ path: path.join(output, 'cockpit-compact.png') });
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.waitForFunction(() => window.__cieli.cockpit.width === 1366);
+  for (const name of ['Mostra o nascondi console impianti', 'Mostra o nascondi console radio']) {
+    const toggle = page.getByRole('button', { name });
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+  }
 
   for (const aircraft of ['airliner', 'jet']) {
     await page.evaluate(async (id) => {
@@ -90,6 +135,11 @@ try {
   await page.getByRole('button', { name: /Inizia la missione/ }).click();
   await ready('flight');
   check('Missione attiva con obiettivi', await page.evaluate(() => window.__cieli.runner?.status === 'running' && window.__cieli.runner.objectives.length > 0));
+  await page.keyboard.press('F12');
+  const missionTime = await page.evaluate(() => window.__cieli.runner.elapsed);
+  await page.waitForTimeout(300);
+  check('Aiuto: il timer della missione resta fermo', await page.evaluate(() => window.__cieli.runner.elapsed) === missionTime);
+  await page.keyboard.press('Escape');
   await page.screenshot({ path: path.join(output, 'mission.png') });
   await page.evaluate(() => {
     const app = window.__cieli;

@@ -18,6 +18,7 @@ import { FlightHud } from './ui/hud.js';
 import { PauseMenu, CrashScreen, DebriefScreen, LandingReport } from './ui/overlays.js';
 import { MapOverlay } from './ui/map.js';
 import { ChecklistOverlay } from './ui/checklist.js';
+import { HelpOverlay } from './ui/help.js';
 
 const VIEW_NAMES = { cockpit: 'Cockpit', chase: 'Esterna', orbit: 'Orbitale', tower: 'Torre di controllo', flyby: 'Passaggio' };
 const SIM_RATES = [1, 2, 4, 8];
@@ -76,6 +77,15 @@ export class App {
     this.input = new deps.InputManager(this.flightSim, { onAction: (a, d) => this.onAction(a, d) });
     this.input.attach(window, this.canvas);
     this.input.setEnabled(false);
+    // Help must remain reachable from focused cockpit fields and paused menus.
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'F12' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.repeat) return;
+      if (this.overlay instanceof HelpOverlay) this._helpClose?.();
+      else this.openHelp();
+    }, true);
 
     this.hud = new FlightHud(this.roots.hud, this);
     this.map = new MapOverlay(this.roots.overlay, this);
@@ -142,6 +152,7 @@ export class App {
         freeflight: () => this.showFreeFlight(),
         missions: () => this.showMissions(),
         controls: () => this.showControls(() => this.showMainMenu()),
+        help: () => this.openHelp(),
         settings: () => this.showSettings(() => this.showMainMenu()),
         credits: () => this._showScreen(new CreditsScreen(() => this.showMainMenu())),
         quit: window.desktop?.quit ? () => window.desktop.quit() : null,
@@ -273,6 +284,7 @@ export class App {
   _setView(view, silent) {
     this.renderer.setView(view);
     this.cockpit.setView(this.renderer.view);
+    document.body.classList.toggle('cockpit-view', this.renderer.view === 'cockpit');
     if (!silent) this.hud.flash(VIEW_NAMES[this.renderer.view] || this.renderer.view);
   }
 
@@ -285,14 +297,17 @@ export class App {
     this._closeOverlay();
     this.overlay = ov;
     this.input.setEnabled(false);
+    this.roots.cockpit.inert = true;
     if (!ov.live) this.audio.setMuted(true);
   }
 
   _closeOverlay() {
     if (this.overlay) {
+      if (this.overlay instanceof HelpOverlay) this._helpClose = null;
       this.overlay.destroy?.();
       this.overlay = null;
     }
+    this.roots.cockpit.inert = false;
     if (this.state === 'flight') {
       this.input.setEnabled(true);
       this.audio.setMuted(this.flightSim.paused || this.settings.muted);
@@ -303,6 +318,26 @@ export class App {
     const sim = this.flightSim;
     sim.paused = force !== undefined ? force : !sim.paused;
     this.audio.setMuted(sim.paused || this.settings.muted);
+  }
+
+  openHelp() {
+    if (!this.input || ['boot', 'loading'].includes(this.state)) return;
+    if (this.overlay instanceof HelpOverlay) return this._helpClose?.();
+    const returnToPause = this.overlay instanceof PauseMenu;
+    if (this.overlay && !returnToPause) return;
+    const state = this.state;
+    const wasPaused = this.flightSim.paused;
+    const wasEnabled = this.input.enabled;
+    if (state === 'flight') this.togglePause(true);
+    const close = () => {
+      this._closeOverlay();
+      if (this.state !== state) return;
+      if (state === 'flight') this.togglePause(wasPaused);
+      if (returnToPause) this.openPauseMenu();
+      else this.input.setEnabled(wasEnabled);
+    };
+    this._openOverlay(new HelpOverlay(this.roots.overlay, this, { close }));
+    this._helpClose = close;
   }
 
   openPauseMenu() {
@@ -325,6 +360,7 @@ export class App {
           this._closeOverlay();
           this.showControls(() => this._returnToFlightFromScreen());
         },
+        help: () => this.openHelp(),
         menu: () => this.showMainMenu(),
       }),
     );
@@ -338,6 +374,7 @@ export class App {
 
   // ------------------------------------------------------------------ input actions
   onAction(action, data) {
+    if (action === 'help') return this.openHelp();
     if (this.state !== 'flight') return;
     const sim = this.flightSim;
     switch (action) {

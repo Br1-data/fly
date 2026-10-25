@@ -32,7 +32,7 @@ const BINDINGS = [
   ['Motori e impianti', 'Magneti / avviamento', ['KeyI'], 'magnetos', 'inc'],
   ['Motori e impianti', 'Riduci magneti', ['Shift+KeyO'], 'magnetos', 'dec'],
   ['Motori e impianti', 'Luci', ['KeyL'], 'allLights'],
-  ['Motori e impianti', 'Fumogeni', ['Shift+KeyS'], 'smoke'],
+  ['Motori e impianti', 'Fumogeni', ['Ctrl+Shift+KeyS'], 'smoke'],
   ['Strumenti e autopilota', 'Altimetro QNH locale', ['KeyB'], 'kollsman', 'local'],
   ['Strumenti e autopilota', 'Altimetro standard', ['Shift+KeyB'], 'kollsman', 'std'],
   ['Strumenti e autopilota', 'Allinea giroscopio', ['KeyD'], 'dgSync'],
@@ -59,9 +59,8 @@ const BINDINGS = [
   ['Interfaccia', 'Ripristina vista', ['Backspace'], '@reset-view'],
   ['Interfaccia', 'Cloche col mouse', ['KeyY'], '@mouse-yoke'],
   ['Interfaccia', 'Ripeti ATIS', ['Shift+KeyT'], '@atis-repeat'],
+  ['Interfaccia', 'Aiuto e glossario', ['F12'], '@help'],
 ];
-// Shift+S is reserved for the previous view; smoke has its own shortcut.
-BINDINGS.find((b) => b[3] === 'smoke')[2] = ['Ctrl+Shift+KeyS'];
 const PRESS_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Numpad8', 'Numpad2', 'Numpad4', 'Numpad6', 'Numpad5', 'KeyQ', 'KeyE', 'Numpad0', 'NumpadEnter', 'Home', 'End', 'Numpad7', 'Numpad1', 'F2', 'F3', 'Period', 'Space', 'Comma', 'KeyX', 'ShiftLeft', 'ShiftRight']);
 
 export class InputManager {
@@ -127,13 +126,18 @@ export class InputManager {
   }
 
   detach() { this._listeners.forEach((remove) => remove()); this._listeners = []; this._release(); }
-  setSim(sim) { this._release(); this.sim = sim; }
+  setSim(sim) { this._release(true); this.sim = sim; this._release(true); }
   setEnabled(enabled) { this.enabled = !!enabled; if (!this.enabled) this._release(); }
-  _release() {
+  _release(resetThrottle = false) {
     this.keys.clear();
     this._buttons.clear();
     this._looking = false;
     this.mouse = { roll: 0, pitch: 0 };
+    if (this.sim?.cockpitInput) {
+      for (const key of Object.keys(this.sim.cockpitInput)) {
+        if (key !== 'throttle2' || resetThrottle) delete this.sim.cockpitInput[key];
+      }
+    }
     if (!this.sim?.pilot) return;
     for (const k of ['pitch', 'roll', 'yaw', 'brakeL', 'brakeR', 'trimRate', 'ailTrimRate', 'rudTrimRate']) this.sim.pilot[k] = 0;
     this.sim.pilot.reverse = false;
@@ -149,7 +153,11 @@ export class InputManager {
       e.preventDefault();
       if (e.repeat) return;
       const command = b[3];
-      if (command === 'throttle') { this.sim.pilot.throttle = b[4]; delete this.sim.pilot.throttle2; }
+      if (command === 'throttle') {
+        this.sim.pilot.throttle = b[4];
+        delete this.sim.pilot.throttle2;
+        if (this.sim.cockpitInput) delete this.sim.cockpitInput.throttle2;
+      }
       else if (command === 'mixtureKeys') this.sim.command('mixture', e.code === 'F4' ? 1 : 0);
       else if (command === '@views') this.onAction(e.shiftKey ? 'view-prev' : 'view-next');
       else if (command === '@mouse-yoke') {
@@ -202,28 +210,38 @@ export class InputManager {
     const p = this.sim.pilot;
     const has = (...keys) => keys.some((k) => this.keys.has(k));
     const damp = (current, target) => current + (target - current) * Math.min(1, dt * 7 * this.settings.keyboardSensitivity);
-    const desired = {
-      pitch: Number(has('ArrowDown', 'Numpad2')) - Number(has('ArrowUp', 'Numpad8')),
-      roll: Number(has('ArrowRight', 'Numpad6')) - Number(has('ArrowLeft', 'Numpad4')),
-      yaw: Number(has('KeyE', 'NumpadEnter')) - Number(has('KeyQ', 'Numpad0')),
+    const cockpit = this.sim.cockpitInput || {};
+    const consoleValue = (key, lo = -1, hi = 1) => Number.isFinite(cockpit[key]) ? clamp(cockpit[key], lo, hi) : 0;
+    const axisKeys = {
+      pitch: [['ArrowDown', 'Numpad2'], ['ArrowUp', 'Numpad8']],
+      roll: [['ArrowRight', 'Numpad6'], ['ArrowLeft', 'Numpad4']],
+      yaw: [['KeyE', 'NumpadEnter'], ['KeyQ', 'Numpad0']],
     };
     for (const key of ['pitch', 'roll', 'yaw']) {
-      let v = desired[key];
-      if (v === 0 && this.settings.mouseYoke && key !== 'yaw') v = this.mouse[key];
-      if (v === 0 && typeof this.values[key] === 'number') v = this.values[key];
+      const [positive, negative] = axisKeys[key];
+      const keyboardActive = has('Numpad5', ...positive, ...negative);
+      const mouseValue = this.settings.mouseYoke && key !== 'yaw' ? this.mouse[key] : 0;
+      const gamepadValue = this.values[key] || 0;
+      // A centred physical controller leaves the pointer-held console available.
+      let v = consoleValue(key);
+      if (Math.abs(gamepadValue) > 0) v = gamepadValue;
+      if (Math.abs(mouseValue) > 0) v = mouseValue;
+      if (keyboardActive) v = has('Numpad5') ? 0 : Number(has(...positive)) - Number(has(...negative));
       p[key] = damp(p[key] || 0, v);
     }
     if (typeof this.values.throttle === 'number') p.throttle = this.values.throttle;
     p.throttleAxis = typeof this.values.throttle === 'number';
+    if (has('F2', 'F3')) delete cockpit.throttle2;
     if (typeof this.values.throttle2 === 'number') p.throttle2 = this.values.throttle2;
+    else if (Number.isFinite(cockpit.throttle2)) p.throttle2 = clamp(cockpit.throttle2, 0, 1);
     else delete p.throttle2;
     if (typeof this.values.mixture === 'number') p.mixture = this.values.mixture;
     p.throttle = clamp(p.throttle + (Number(has('F3')) - Number(has('F2'))) * dt * 0.25, 0, 1);
     p.trimRate = Number(has('Home', 'Numpad7')) - Number(has('End', 'Numpad1'));
     const braking = has('Period', 'Space');
-    p.brakeL = braking || has('Comma') ? 1 : this.values.brakeL || 0;
-    p.brakeR = braking || has('KeyX') ? 1 : this.values.brakeR || 0;
-    p.reverse = has('F2') && has('ShiftLeft', 'ShiftRight');
+    p.brakeL = braking || has('Comma') ? 1 : this.values.brakeL > 0 ? this.values.brakeL : consoleValue('brakeL', 0, 1);
+    p.brakeR = braking || has('KeyX') ? 1 : this.values.brakeR > 0 ? this.values.brakeR : consoleValue('brakeR', 0, 1);
+    p.reverse = (has('F2') && has('ShiftLeft', 'ShiftRight')) || cockpit.reverse === true;
     const next = new Set();
     for (const pad of pads.filter((pad) => pad.mapping === 'standard')) {
       const actions = { 1: () => this.sim.command('gear'), 2: () => this.sim.command('flaps', 'inc'), 3: () => this.onAction('view-next'), 8: () => this.onAction('map'), 9: () => this.onAction('menu'), 10: () => this.sim.command('apDisconnect') };
@@ -235,7 +253,12 @@ export class InputManager {
       });
       if (!this.enabled) return;
       if (pad.buttons[0]?.pressed) p.brakeL = p.brakeR = 1;
-      p.throttle = clamp(p.throttle + ((pad.buttons[5]?.value || 0) - (pad.buttons[4]?.value || 0)) * dt * 0.25, 0, 1);
+      const shoulderInput = (pad.buttons[5]?.value || 0) - (pad.buttons[4]?.value || 0);
+      if (pad.buttons[4]?.pressed || pad.buttons[5]?.pressed) {
+        delete cockpit.throttle2;
+        if (typeof this.values.throttle2 !== 'number') delete p.throttle2;
+      }
+      p.throttle = clamp(p.throttle + shoulderInput * dt * 0.25, 0, 1);
     }
     this._buttons = next;
   }
@@ -245,12 +268,32 @@ export class InputManager {
     return [
       { group: 'Volo', label: 'Beccheggio / rollio', keys: ['Frecce', 'Num 8/2/4/6'] },
       { group: 'Volo', label: 'Pedaliera', keys: ['Q / E', 'Num 0 / Invio'] },
+      { group: 'Volo', label: 'Centra cloche e pedaliera', keys: ['Num 5'] },
       { group: 'Volo', label: 'Aumenta / riduci manetta', keys: ['F3 / F2'] },
       { group: 'Volo', label: 'Trim a cabrare / picchiare', keys: ['Home / End', 'Num 7 / Num 1'] },
       { group: 'Volo', label: 'Freni ruote', keys: ['.', 'Spazio'] },
       { group: 'Volo', label: 'Freni differenziali sinistro / destro', keys: [', / X'] },
       { group: 'Volo', label: 'Inversori di spinta', keys: ['Shift+F2 (tieni premuto)'] },
       ...BINDINGS.map(([group, title, keys]) => ({ group, label: title, keys: keys.map(label) })),
+      { group: 'Mouse', label: 'Guardarsi intorno', keys: ['Tasto destro + trascina'] },
+      { group: 'Mouse', label: 'Zoom', keys: ['Rotella sulla vista 3D'] },
+      { group: 'Mouse', label: 'Interruttori e pulsanti del cockpit', keys: ['Clic'] },
+      { group: 'Mouse', label: 'Manopole del cockpit', keys: ['Clic su − / +', 'Rotella'] },
+      { group: 'Mouse', label: 'Leve del cockpit', keys: ['Trascina cursore'] },
+      { group: 'Mouse', label: 'Cloche, pedaliera e freni nelle console', keys: ['Trascina cloche', 'Tieni premuto il pulsante'] },
+      { group: 'Mouse', label: 'Cloche col mouse (attiva con Y)', keys: ['Muovi il puntatore sulla vista 3D'] },
+      { group: 'Gamepad standard', label: 'Beccheggio / rollio', keys: ['Stick sinistro'] },
+      { group: 'Gamepad standard', label: 'Pedaliera', keys: ['Stick destro orizzontale'] },
+      { group: 'Gamepad standard', label: 'Freni differenziali', keys: ['LT / RT (pulsanti 6 / 7)'] },
+      { group: 'Gamepad standard', label: 'Freni ruote', keys: ['A / Croce (pulsante 0)'] },
+      { group: 'Gamepad standard', label: 'Carrello', keys: ['B / Cerchio (pulsante 1)'] },
+      { group: 'Gamepad standard', label: 'Estendi flap', keys: ['X / Quadrato (pulsante 2)'] },
+      { group: 'Gamepad standard', label: 'Vista successiva', keys: ['Y / Triangolo (pulsante 3)'] },
+      { group: 'Gamepad standard', label: 'Riduci / aumenta manetta', keys: ['LB / RB (pulsanti 4 / 5)'] },
+      { group: 'Gamepad standard', label: 'Mappa', keys: ['Back / Select (pulsante 8)'] },
+      { group: 'Gamepad standard', label: 'Menu', keys: ['Start / Options (pulsante 9)'] },
+      { group: 'Gamepad standard', label: 'Disconnetti autopilota', keys: ['Premi stick sinistro (pulsante 10)'] },
+      { group: 'App desktop', label: 'Schermo intero', keys: ['Alt+Invio'] },
     ];
   }
   listGamepads() { return this._pads().map((p) => ({ index: p.index, id: p.id, axes: p.axes.length, buttons: p.buttons.length })); }

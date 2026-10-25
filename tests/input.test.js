@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InputManager } from '../src/input/input.js';
+import { newSim } from './helpers.js';
 
 function fixture() {
   const calls = [];
@@ -139,4 +140,119 @@ test('reversers allow simultaneous braking and steering with Shift held', () => 
   assert.equal(sim.pilot.brakeR, 1);
   assert.ok(sim.pilot.roll < 0);
   assert.ok(sim.pilot.yaw < 0);
+});
+
+test('held console controls reach pilot and the actual flight model', () => {
+  const sim = newSim({ aircraft: 'airliner', start: { type: 'runway', airport: 'XAQU' } });
+  const input = new InputManager(sim);
+  input.setEnabled(true);
+  sim.cockpitInput = { pitch: 0.35, roll: -0.4, yaw: 0.25, brakeL: 0.7, brakeR: 0.8, reverse: true };
+  input.update(0.2);
+  sim.update(1 / 240);
+  assert.equal(sim.pilot.pitch, 0.35);
+  assert.equal(sim.fm.input.pitch, 0.35);
+  assert.equal(sim.fm.input.roll, -0.4);
+  assert.equal(sim.fm.input.yaw, 0.25);
+  assert.equal(sim.fm.input.brakeL, 0.7);
+  assert.equal(sim.fm.input.brakeR, 0.8);
+  assert.equal(sim.fm.engines[0].reverseCmd, true);
+  delete sim.cockpitInput.pitch;
+  delete sim.cockpitInput.reverse;
+  input.update(0.2);
+  sim.update(1 / 240);
+  assert.equal(sim.pilot.pitch, 0);
+  assert.equal(sim.fm.engines[0].reverseCmd, false);
+});
+
+test('active physical controls take priority while centred axes allow console holds', () => {
+  const { sim, input, key } = fixture();
+  sim.cockpitInput = { pitch: 0.8, roll: 0.8, yaw: 0.8, brakeL: 0.8, brakeR: 0.75 };
+  const pad = { id: 'Pad', index: 0, mapping: 'standard', axes: [-0.8, 0, 0], buttons: Array.from({ length: 10 }, (_, i) => ({ value: i === 6 ? 0.25 : 0, pressed: false })) };
+  input._pads = () => [pad];
+  input.update(0.2);
+  assert.equal(sim.pilot.pitch, 0.8, 'centred gamepad leaves console pitch available');
+  assert.ok(sim.pilot.roll < -0.5, 'gamepad deflection overrides console roll');
+  assert.equal(sim.pilot.brakeL, 0.25, 'gamepad brake overrides console brake');
+  assert.equal(sim.pilot.brakeR, 0.75);
+  key('ArrowRight'); key('KeyQ'); key('Space');
+  input.update(0.2);
+  assert.equal(sim.pilot.roll, 1);
+  assert.equal(sim.pilot.yaw, -1);
+  assert.equal(sim.pilot.brakeL, 1);
+  assert.equal(sim.pilot.brakeR, 1);
+  key('Numpad5'); input.update(0.2);
+  assert.equal(sim.pilot.roll, 0);
+  assert.equal(sim.pilot.pitch, 0);
+  assert.equal(sim.pilot.yaw, 0);
+});
+
+for (const [code, action] of [['Escape', 'menu'], ['F12', 'help']]) {
+  test(`${action} releases console holds and resuming does not reapply them`, () => {
+    const { sim, input, key } = fixture();
+    sim.cockpitInput = { pitch: 1, roll: -1, yaw: 0.5, brakeL: 1, brakeR: 1, reverse: true };
+    input.update(0.2);
+    assert.equal(sim.pilot.pitch, 1);
+    assert.equal(sim.pilot.reverse, true);
+    input.onAction = (received) => { assert.equal(received, action); input.setEnabled(false); };
+    key(code);
+    assert.deepEqual(sim.cockpitInput, {});
+    for (const control of ['pitch', 'roll', 'yaw', 'brakeL', 'brakeR']) assert.equal(sim.pilot[control], 0);
+    assert.equal(sim.pilot.reverse, false);
+    input.setEnabled(true); input.update(0.2);
+    assert.equal(sim.pilot.pitch, 0);
+    assert.equal(sim.pilot.brakeL, 0);
+    assert.equal(sim.pilot.reverse, false);
+  });
+}
+
+test('blur and simulation replacement release console state in place', () => {
+  const { sim, input } = fixture();
+  const target = new EventTarget();
+  input.attach(target, new EventTarget());
+  const held = sim.cockpitInput = { yaw: 1, brakeL: 1, reverse: true };
+  input.update(0.2);
+  target.dispatchEvent(new Event('blur'));
+  assert.deepEqual(held, {});
+  assert.equal(sim.pilot.yaw, 0);
+  held.brakeR = 1;
+  const next = { pilot: { throttle: 0.5 }, cockpitInput: { roll: 1, brakeL: 1 }, command() {} };
+  input.setSim(next);
+  assert.deepEqual(held, {});
+  assert.deepEqual(next.cockpitInput, {});
+  assert.equal(next.pilot.roll, 0);
+  assert.equal(next.pilot.brakeL, 0);
+  input.destroy();
+});
+
+test('second console throttle persists between frames and synchronises on keyboard throttle use', () => {
+  const { sim, input, key } = fixture();
+  sim.cockpitInput = { throttle2: 0.7 };
+  input.update(0.2); input.update(0.2);
+  assert.equal(sim.pilot.throttle2, 0.7);
+  assert.equal(sim.pilot.throttle, 0.4);
+  key('F4'); input.update(0.2);
+  assert.equal(sim.pilot.throttle, 1);
+  assert.equal(sim.pilot.throttle2, undefined);
+  assert.equal(sim.cockpitInput.throttle2, undefined);
+  sim.cockpitInput.throttle2 = 0.2;
+  key('F2'); input.update(0.2);
+  assert.equal(sim.pilot.throttle2, undefined);
+  assert.equal(sim.cockpitInput.throttle2, undefined);
+});
+
+test('help and focus loss preserve independent engine power while releasing held controls', () => {
+  const { sim, input } = fixture();
+  sim.cockpitInput = { throttle2: 0.65, roll: 1, brakeL: 1, reverse: true };
+  input.update(0.2);
+  input.setEnabled(false);
+  assert.deepEqual(sim.cockpitInput, { throttle2: 0.65 });
+  input.setEnabled(true);
+  input.update(0.2);
+  assert.equal(sim.pilot.throttle2, 0.65);
+  assert.equal(sim.pilot.roll, 0);
+  assert.equal(sim.pilot.brakeL, 0);
+  input._release();
+  assert.equal(sim.cockpitInput.throttle2, 0.65);
+  input.setSim(sim);
+  assert.deepEqual(sim.cockpitInput, {});
 });

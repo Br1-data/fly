@@ -76,6 +76,35 @@ Se Chrome/Chromium non viene trovato automaticamente, imposta `CHROMIUM_PATH` al
 La suite `npm test` comprende anche missioni, input, audio e regressioni dei riavvii. Node.js 24 è
 stato verificato in sviluppo; la CI usa Node.js 22. Non sono richiesti servizi esterni o chiavi API.
 
+### Cockpit e aiuto
+
+La vista cockpit dispone di console laterali: **Impianti** a sinistra per alimentazione, motori,
+luci e comandi di volo; **Radio** a destra per autopilota, navigazione e strumenti. I pulsanti
+nel pannello centrale aprono o richiudono le console. Puoi scorrere e richiudere le sezioni;
+sugli schermi piccoli si apre una console alla volta. I comandi mostrati rispettano gli impianti
+del velivolo selezionato.
+
+Il pulsante **Aiuto** in alto o **F12** apre una guida rapida, tutti i comandi e un glossario
+ricercabile di 80 termini. Il volo e il timer missione restano fermi durante la consultazione;
+**Esc** o **F12** chiude la guida e ripristina la pausa precedente.
+
+### Versione web e GitHub Pages
+
+```bash
+npm run build:web
+SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/ npm run smoke
+```
+
+`dist/web/` contiene solo i file della versione browser e la versione bloccata di three.js;
+non richiede chiavi API, CDN o un server applicativo. I salvataggi rimangono nel browser utilizzato.
+La seconda istruzione verifica il pacchetto sotto `/fly/`, lo stesso percorso previsto su Pages.
+
+Il workflow **Publish GitHub Pages** esegue test, build e prova browser prima del deploy a ogni
+push su `claude/epic-hypatia-ctxoo9`; si può avviare anche manualmente da Actions. Nel repository,
+**Settings → Pages → Build and deployment → Source** deve essere **GitHub Actions**. L’abilitazione
+iniziale di Pages richiede un amministratore del repository; il workflow usa solo i permessi
+`pages: write` e `id-token: write` durante la pubblicazione.
+
 ### Creare l'eseguibile per Windows
 
 ```bash

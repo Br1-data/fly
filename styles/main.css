@@ -762,6 +762,47 @@ ul.specs li {
 .hud * {
   pointer-events: none;
 }
+.flight-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(8, 16, 28, 0.88);
+  white-space: nowrap;
+}
+.flight-toolbar button {
+  pointer-events: auto;
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+.flight-toolbar .flight-help {
+  color: #bde5ff;
+  border-color: var(--accent);
+}
+body[data-state='flight'].cockpit-view .hud-toasts {
+  left: calc(var(--console-left-w, 0px) + 16px);
+  top: 68px;
+  max-width: min(400px, 30vw);
+}
+body[data-state='flight'].cockpit-view .hud-mission {
+  right: calc(var(--console-right-w, 0px) + 16px);
+  top: 68px;
+  width: min(320px, 28vw);
+}
+body[data-state='flight'].cockpit-view .hud-atis {
+  left: calc(var(--console-left-w, 0px) + 16px);
+  width: min(460px, calc(100vw - var(--console-left-w, 0px) - var(--console-right-w, 0px) - 32px));
+}
+@media (max-width: 700px) {
+  .flight-toolbar { top: 7px; gap: 3px; }
+  .flight-toolbar button { padding: 6px; font-size: 10px; }
+}
 .hud-strip {
   position: absolute;
   left: 50%;

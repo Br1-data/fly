@@ -38,6 +38,7 @@ export class PauseMenu extends Overlay {
           button('▶  Riprendi', a.resume, 'primary'),
           button('↺  Ricomincia', a.restart),
           button('🕹  Comandi', a.controls),
+          button('?  Aiuto e glossario', a.help),
           button('⚙  Impostazioni', a.settings),
           button('⌂  Menu principale', a.menu, 'ghost'),
         ),

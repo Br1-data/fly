@@ -61,19 +61,6 @@ export class ControlsScreen {
         ),
       );
     }
-    cols.appendChild(
-      h(
-        'section.key-group',
-        h('h3', 'Mouse'),
-        h(
-          'table',
-          h('tr', h('td', 'Guardarsi intorno'), h('td.keys', h('kbd', 'Tasto destro + trascina'))),
-          h('tr', h('td', 'Zoom'), h('td.keys', h('kbd', 'Rotella'))),
-          h('tr', h('td', 'Interruttori, manopole, leve del cockpit'), h('td.keys', h('kbd', 'Clic'), h('span.or', ' / '), h('kbd', 'Rotella'), h('span.or', ' / '), h('kbd', 'Trascina'))),
-          h('tr', h('td', 'Cloche col mouse'), h('td.keys', h('kbd', 'Y'))),
-        ),
-      ),
-    );
     clear(this.tabKeys).appendChild(cols);
   }
 

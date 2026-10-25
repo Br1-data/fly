@@ -17,6 +17,7 @@ export class MainMenu {
           item('🛫', 'Volo libero', 'Scegli aereo, aeroporto, orario e meteo', actions.freeflight, 'primary'),
           item('🎯', 'Missioni', '13 missioni con briefing e punteggio', actions.missions),
           item('🕹', 'Comandi', 'Tastiera, joystick e gamepad', actions.controls),
+          item('?', 'Aiuto e glossario', 'Guida di volo, tutti i comandi e termini · F12', actions.help),
           item('⚙', 'Impostazioni', 'Grafica, audio e realismo', actions.settings),
           item('ℹ', 'Riconoscimenti', 'Informazioni sul simulatore', actions.credits),
           item('⏻', 'Esci', 'Chiudi il simulatore', actions.quit),

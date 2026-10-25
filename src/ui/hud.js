@@ -1,5 +1,5 @@
 // In-flight overlay: info strip (external views), toasts, warnings, mission panel, ATIS box.
-import { h, clear, num, pad3, timeStr } from './dom.js';
+import { h, button, clear, num, pad3, timeStr } from './dom.js';
 import { FT, FPM } from '../core/units.js';
 
 export class FlightHud {
@@ -32,7 +32,12 @@ export class FlightHud {
     this.missionEl = h('div.hud-mission');
     this.atisEl = h('div.hud-atis');
     this.rateEl = h('div.hud-rate');
-    this.el = h('div.hud', this.toasts, this.warn, this.flashEl, this.missionEl, this.atisEl, this.rateEl, this.strip);
+    const toolbar = h('nav.flight-toolbar', { 'aria-label': 'Strumenti di volo e aiuto' },
+      button('? Aiuto · F12', () => app.openHelp(), 'flight-help'),
+      button('Mappa · M', () => app.onAction('map')),
+      button('Checklist · K', () => app.onAction('checklist')),
+      button('Pausa · Esc', () => app.openPauseMenu()));
+    this.el = h('div.hud', toolbar, this.toasts, this.warn, this.flashEl, this.missionEl, this.atisEl, this.rateEl, this.strip);
     root.appendChild(this.el);
     this._t = 0;
     this._toastMap = new Map();
