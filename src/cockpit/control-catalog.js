@@ -2,8 +2,8 @@
 // Keep this module independent of the DOM so help screens and tests can use it.
 import { AIRCRAFT_LIST } from '../sim/aircraft/index.js';
 
-export function getCockpitGuide(def = {}) {
-  if (def === null) {
+export function getCockpitGuide(def = null) {
+  if (def == null) {
     const unique = new Map();
     for (const aircraft of AIRCRAFT_LIST) {
       for (const entry of getCockpitGuide(aircraft)) unique.set(`${entry.group}:${entry.label}`, entry);

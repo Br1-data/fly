@@ -19,6 +19,8 @@ import { PauseMenu, CrashScreen, DebriefScreen, LandingReport } from './ui/overl
 import { MapOverlay } from './ui/map.js';
 import { ChecklistOverlay } from './ui/checklist.js';
 import { HelpOverlay } from './ui/help.js';
+import { TouchControls } from './input/touch-controls.js';
+import { isTouchDevice } from './core/device.js';
 
 const VIEW_NAMES = { cockpit: 'Cockpit', chase: 'Esterna', orbit: 'Orbitale', tower: 'Torre di controllo', flyby: 'Passaggio' };
 const SIM_RATES = [1, 2, 4, 8];
@@ -34,6 +36,9 @@ export class App {
     this.canvas = canvas;
     this.roots = roots;
     this.deps = deps;
+    this.touchMode = isTouchDevice();
+    this._needsRender = true;
+    document.documentElement.classList.toggle('touch-device', this.touchMode);
     this.settings = loadSettings();
     this.state = 'boot';
     this.flightSim = new Simulation();
@@ -77,6 +82,11 @@ export class App {
     this.input = new deps.InputManager(this.flightSim, { onAction: (a, d) => this.onAction(a, d) });
     this.input.attach(window, this.canvas);
     this.input.setEnabled(false);
+    this.touchControls = new TouchControls(this.roots.hud, this);
+    window.addEventListener('orientationchange', () => this.touchControls.reset());
+    document.addEventListener('visibilitychange', () => {
+      if (this.touchMode && document.hidden && this.state === 'flight' && !this.flightSim.paused && !this.overlay) this.openPauseMenu();
+    });
     // Help must remain reachable from focused cockpit fields and paused menus.
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'F12' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
@@ -123,6 +133,7 @@ export class App {
   }
 
   _resize() {
+    this._needsRender = true;
     const w = window.innerWidth,
       hgt = window.innerHeight;
     this.renderer?.resize(w, hgt);
@@ -182,6 +193,7 @@ export class App {
   }
 
   applySettings() {
+    this._needsRender = true;
     saveSettings(this.settings);
     this.renderer.setQuality(this.settings.quality);
     this.audio.setVolume(this.settings.volume);
@@ -196,6 +208,7 @@ export class App {
   async startFlight(opts, mission) {
     const { deps } = this;
     this._clearFlightTimers();
+    this.touchControls.reset();
     this.map.hide();
     this.checklist.reset();
     this._closeOverlay();
@@ -259,6 +272,8 @@ export class App {
   }
 
   _endFlight() {
+    this.touchControls.reset();
+    this.touchControls.setEnabled(false);
     this._clearFlightTimers();
     this.map.hide();
     this.checklist.reset();
@@ -282,6 +297,7 @@ export class App {
 
   // ------------------------------------------------------------------ views
   _setView(view, silent) {
+    this._needsRender = true;
     this.renderer.setView(view);
     this.cockpit.setView(this.renderer.view);
     document.body.classList.toggle('cockpit-view', this.renderer.view === 'cockpit');
@@ -297,6 +313,7 @@ export class App {
     this._closeOverlay();
     this.overlay = ov;
     this.input.setEnabled(false);
+    this.touchControls?.setEnabled(false);
     this.roots.cockpit.inert = true;
     if (!ov.live) this.audio.setMuted(true);
   }
@@ -315,6 +332,7 @@ export class App {
   }
 
   togglePause(force) {
+    this._needsRender = true;
     const sim = this.flightSim;
     sim.paused = force !== undefined ? force : !sim.paused;
     this.audio.setMuted(sim.paused || this.settings.muted);
@@ -402,6 +420,7 @@ export class App {
         this._setView('chase');
         break;
       case 'panel-cycle':
+        this._needsRender = true;
         if (this.view !== 'cockpit') this._setView('cockpit');
         else this.cockpit.cycleMode();
         break;
@@ -430,12 +449,15 @@ export class App {
         this.restartFlight();
         break;
       case 'reset-view':
+        this._needsRender = true;
         this.renderer.resetView();
         break;
       case 'look':
+        this._needsRender = true;
         this.renderer.look(data?.dx || 0, data?.dy || 0);
         break;
       case 'zoom':
+        this._needsRender = true;
         this.renderer.zoom(data?.delta || 0);
         break;
       case 'mouse-yoke':
@@ -535,6 +557,8 @@ export class App {
   // ------------------------------------------------------------------ main loop
   _frame(now) {
     requestAnimationFrame(this._frame);
+    // The fixed-step physics receives elapsed time; drawing less often saves mobile GPU work.
+    if (this.touchMode && this.lastTime && now - this.lastTime < 1000 / 30 - 1) return;
     const dt = clamp((now - (this.lastTime || now)) / 1000, 0, 0.1);
     this.lastTime = now;
     try {
@@ -568,6 +592,8 @@ export class App {
   _flightFrame(dt) {
     const sim = this.flightSim;
     const active = this.state === 'flight' && !this.overlay;
+    const drawerOpen = this.touchMode && document.body.classList.contains('cockpit-console-open');
+    this.touchControls.setEnabled(active && !sim.paused && !drawerOpen && !this.map.visible && !this.checklist.visible);
     if (active) this.input.update(dt);
     if (!sim.crashed && !(this.overlay && !this.overlay.live)) sim.update(dt);
     if (this.runner && !sim.paused) {
@@ -580,12 +606,16 @@ export class App {
       }
     }
     this._dispatchEvents();
-    this.cockpit.setNight(nightFactor(sim.timeOfDay));
-    this.renderer.setPanelFraction(this.view === 'cockpit' ? this.cockpit.panelFraction : 0);
-    this.renderer.setMarkers(this.runner?.getMarkers() || []);
-    this.renderer.update(sim, dt);
-    this.renderer.render();
-    this.cockpit.update(dt);
+    // A paused mobile flight is a still image, including while reading the guide.
+    if (!this.touchMode || !sim.paused || this._needsRender) {
+      this.cockpit.setNight(nightFactor(sim.timeOfDay));
+      this.renderer.setPanelFraction(this.view === 'cockpit' ? this.cockpit.panelFraction : 0);
+      this.renderer.setMarkers(this.runner?.getMarkers() || []);
+      this.renderer.update(sim, dt);
+      this.renderer.render();
+      this.cockpit.update(dt);
+      this._needsRender = false;
+    }
     this.audio.update(sim, dt, { view: this.view === 'cockpit' ? 'cockpit' : 'external', cameraDistance: this._cameraDistance() });
     this.hud.update(dt);
     this.map.update(dt);

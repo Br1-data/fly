@@ -6,17 +6,41 @@ import { buildAirports, buildCities } from './airports.js';
 import { airportLayouts, LAKES } from '../world/world-data.js';
 import { getTerrain } from '../world/terrain-height.js';
 import { clamp, DEG, hash2 } from '../core/math.js';
+import { isTouchDevice } from '../core/device.js';
 
 const VIEWS = ['cockpit', 'chase', 'orbit', 'tower', 'flyby'];
 const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+// Fixed device budgets keep drawing cost predictable without changing saved quality.
+// Desktop medium/high retain their existing detail and resolution limits.
+export function getRenderProfile(quality = 'medium', touch = false) {
+  const level = ['low', 'medium', 'high'].includes(quality) ? quality : 'medium';
+  return {
+    quality: level,
+    antialias: !touch && level !== 'low',
+    pixelRatioMax: touch || level === 'low' ? 1 : level === 'high' ? 2 : 1.5,
+    maxBufferPixels: touch ? (level === 'low' ? 1_000_000 : level === 'high' ? 2_000_000 : 1_500_000) : level === 'low' ? 1_500_000 : Infinity,
+    cloudCount: level === 'low' ? 40 : 180,
+    rainCount: level === 'low' ? 100 : 500,
+  };
+}
+
+// Also cap the total drawing buffer on large high-density touch screens.
+export function getRenderPixelRatio(profile, width, height, devicePixelRatio = 1) {
+  const area = Math.max(1, width) * Math.max(1, height);
+  const ratio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  return Math.min(ratio, profile.pixelRatioMax, Math.sqrt(profile.maxBufferPixels / area));
+}
+
 export class SceneRenderer {
   constructor(canvas, { quality = 'medium' } = {}) {
     this.canvas = canvas;
+    this.touch = isTouchDevice();
+    this.profile = getRenderProfile(quality, this.touch);
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x92bed4);
     this.scene.fog = new THREE.FogExp2(0x92bed4, 0.000035);
-    this.webgl = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'low', powerPreference: 'high-performance' });
+    this.webgl = new THREE.WebGLRenderer({ canvas, antialias: this.profile.antialias, powerPreference: 'high-performance' });
     this.webgl.outputColorSpace = THREE.SRGBColorSpace;
     this.webgl.toneMapping = THREE.ACESFilmicToneMapping;
     this.webgl.toneMappingExposure = 1.1;
@@ -92,6 +116,7 @@ export class SceneRenderer {
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setDrawRange(0, this.profile.rainCount * 2);
     this.rain = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xb3c9d2, transparent: true, opacity: 0.35 }));
     this.rain.frustumCulled = false;
     this.rain.visible = false;
@@ -104,7 +129,7 @@ export class SceneRenderer {
     const key = `${nn}:${ee}:${layer?.baseFt}:${layer?.coverage}`;
     if (key === this.cloudCell) return;
     this.cloudCell = key;
-    const count = layer ? Math.round(layer.coverage * (this.quality === 'low' ? 80 : 180)) : 0;
+    const count = layer ? Math.min(180, Math.round(clamp(layer.coverage, 0, 1) * this.profile.cloudCount)) : 0;
     this.clouds.count = count;
     this.clouds.position.set(ee * 8000, (layer?.baseFt || 3000) * 0.3048, -nn * 8000);
     const dummy = new THREE.Object3D();
@@ -120,8 +145,9 @@ export class SceneRenderer {
   }
 
   setQuality(quality) {
-    this.quality = ['low', 'medium', 'high'].includes(quality) ? quality : 'medium';
-    this.webgl.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.quality === 'high' ? 2 : this.quality === 'low' ? 1 : 1.5));
+    this.profile = getRenderProfile(quality, this.touch);
+    this.quality = this.profile.quality;
+    if (this.rain) this.rain.geometry.setDrawRange(0, this.profile.rainCount * 2);
     this.terrain.setQuality(this.quality);
     this.cloudCell = '';
     this.resize(this.width, this.height);
@@ -130,6 +156,8 @@ export class SceneRenderer {
   resize(width, height) {
     this.width = Math.max(1, width);
     this.height = Math.max(1, height);
+    const ratio = getRenderPixelRatio(this.profile, this.width, this.height, window.devicePixelRatio || 1);
+    this.webgl.setPixelRatio(ratio);
     this.webgl.setSize(this.width, this.height, false);
     this.camera.aspect = this.width / this.height;
     this.updateProjection();

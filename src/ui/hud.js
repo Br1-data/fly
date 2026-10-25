@@ -32,11 +32,12 @@ export class FlightHud {
     this.missionEl = h('div.hud-mission');
     this.atisEl = h('div.hud-atis');
     this.rateEl = h('div.hud-rate');
+    const tool = (label, key, action, cls = '') => button([h('span', label), h('kbd', key)], action, cls);
     const toolbar = h('nav.flight-toolbar', { 'aria-label': 'Strumenti di volo e aiuto' },
-      button('? Aiuto · F12', () => app.openHelp(), 'flight-help'),
-      button('Mappa · M', () => app.onAction('map')),
-      button('Checklist · K', () => app.onAction('checklist')),
-      button('Pausa · Esc', () => app.openPauseMenu()));
+      tool('Aiuto', 'F12', () => app.openHelp(), 'flight-help'),
+      tool('Mappa', 'M', () => app.onAction('map')),
+      tool('Checklist', 'K', () => app.onAction('checklist')),
+      tool('Pausa', 'Esc', () => app.openPauseMenu()));
     this.el = h('div.hud', toolbar, this.toasts, this.warn, this.flashEl, this.missionEl, this.atisEl, this.rateEl, this.strip);
     root.appendChild(this.el);
     this._t = 0;
@@ -56,6 +57,7 @@ export class FlightHud {
   }
 
   setMission(runner) {
+    this.el.classList.toggle('has-mission', !!runner);
     this.runner = runner;
     this._objSig = '';
     this.missionEl.style.display = runner ? '' : 'none';
@@ -77,7 +79,8 @@ export class FlightHud {
   }
 
   showAtis(text) {
-    clear(this.atisEl).append(h('div.atis-head', '📻 ATIS'), h('div', text));
+    clear(this.atisEl).append(h('div.atis-head', h('b', '📻 ATIS'), button('✕', () => this.atisEl.classList.remove('visible'), 'atis-close')), h('div', text));
+    this.atisEl.querySelector('button').setAttribute('aria-label', 'Chiudi bollettino ATIS');
     this.atisEl.classList.add('visible');
     clearTimeout(this._atisT);
     this._atisT = setTimeout(() => this.atisEl.classList.remove('visible'), 25000);

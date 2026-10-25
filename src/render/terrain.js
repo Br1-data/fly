@@ -10,8 +10,18 @@ const COLORS = {
   snow: new THREE.Color(0xdce2df), water: new THREE.Color(0x437f8a),
 };
 
+export function getTerrainProfile(quality = 'medium') {
+  const level = ['low', 'medium', 'high'].includes(quality) ? quality : 'medium';
+  return {
+    quality: level,
+    radius: level === 'low' ? 3 : level === 'high' ? 6 : 5,
+    segments: level === 'low' ? [24, 16, 8] : [64, 32, 8],
+    treeSamples: level === 'low' ? 30 : level === 'high' ? 180 : 100,
+  };
+}
+
 export class TerrainTiles {
-  constructor(scene, quality) {
+  constructor(scene, quality = 'medium') {
     this.scene = scene;
     this.terrain = getTerrain();
     this.tiles = new Map();
@@ -23,9 +33,11 @@ export class TerrainTiles {
   }
 
   setQuality(quality) {
-    if (quality === this.quality) return;
-    this.quality = quality;
-    this.radius = quality === 'low' ? 4 : quality === 'high' ? 6 : 5;
+    const profile = getTerrainProfile(quality);
+    if (profile.quality === this.quality) return;
+    this.profile = profile;
+    this.quality = profile.quality;
+    this.radius = profile.radius;
     this.center = '';
   }
 
@@ -39,11 +51,11 @@ export class TerrainTiles {
     for (let dn = -this.radius; dn <= this.radius; dn++) {
       for (let de = -this.radius; de <= this.radius; de++) {
         const distance = Math.max(Math.abs(dn), Math.abs(de));
-        const segments = distance <= 1 ? (this.quality === 'low' ? 32 : 64) : distance <= 2 ? 32 : 8;
+        const segments = this.profile.segments[distance <= 1 ? 0 : distance <= 2 ? 1 : 2];
         const nn = ni + dn, ee = ei + de, key = `${nn}:${ee}`;
         wanted.add(key);
         const old = this.tiles.get(key);
-        if (!old || old.segments !== segments) queue.push({ nn, ee, key, segments, priority: dn * dn + de * de });
+        if (!old || old.segments !== segments || old.quality !== this.quality) queue.push({ nn, ee, key, segments, priority: dn * dn + de * de });
       }
     }
     for (const [key, tile] of this.tiles) {
@@ -55,6 +67,9 @@ export class TerrainTiles {
   remove(key, tile) {
     this.scene.remove(tile.group);
     tile.mesh.geometry.dispose();
+    // Per-tile instance attributes have their own GPU buffers. Shared geometry and
+    // materials stay alive until the entire terrain streamer is disposed.
+    tile.group.traverse((object) => { if (object.isInstancedMesh) object.dispose(); });
     this.tiles.delete(key);
   }
 
@@ -93,11 +108,11 @@ export class TerrainTiles {
     const group = new THREE.Group();
     group.position.set(e0, 0, -n0);
     group.add(mesh);
-    if (segments >= 32) this.addTrees(group, n0, e0, nn, ee);
+    if (segments >= (this.quality === 'low' ? 24 : 32)) this.addTrees(group, n0, e0, nn, ee);
     const old = this.tiles.get(key);
     if (old) this.remove(key, old);
     this.scene.add(group);
-    this.tiles.set(key, { group, mesh, segments });
+    this.tiles.set(key, { group, mesh, segments, quality: this.quality });
     return true;
   }
 
@@ -133,7 +148,7 @@ export class TerrainTiles {
   }
 
   addTrees(group, n0, e0, nn, ee) {
-    const samples = this.quality === 'high' ? 180 : 100;
+    const samples = this.profile.treeSamples;
     const trees = new THREE.InstancedMesh(this.treeGeometry, this.treeMaterial, samples);
     const dummy = new THREE.Object3D();
     let count = 0;

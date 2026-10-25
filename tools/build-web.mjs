@@ -13,7 +13,11 @@ await mkdir(output, { recursive: true });
 for (const entry of ['index.html', 'src', 'styles', 'assets']) {
   await cp(path.join(root, entry), path.join(output, entry), { recursive: true });
 }
-for (const entry of ['build', 'examples/jsm']) {
+// Ship the WebGL runtime and the geometry helper used by the airports. WebGPU
+// and unused examples need not be uploaded with every deployment.
+await mkdir(path.join(output, 'node_modules/three/build'), { recursive: true });
+await mkdir(path.join(output, 'node_modules/three/examples/jsm/utils'), { recursive: true });
+for (const entry of ['build/three.module.js', 'build/three.core.js', 'examples/jsm/utils/BufferGeometryUtils.js']) {
   await cp(path.join(root, 'node_modules/three', entry), path.join(output, 'node_modules/three', entry), { recursive: true });
 }
 await cp(path.join(root, 'node_modules/three/LICENSE'), path.join(output, 'node_modules/three/LICENSE'));

@@ -776,6 +776,10 @@ ul.specs li {
   white-space: nowrap;
 }
 .flight-toolbar button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   pointer-events: auto;
   padding: 7px 10px;
   font-size: 12px;
@@ -1020,10 +1024,15 @@ body[data-state='flight'].cockpit-view .hud-atis {
   transform: none;
 }
 .atis-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-weight: 700;
   color: #4fe08a;
   margin-bottom: 4px;
 }
+.atis-close { padding: 3px 7px; font-size: 12px; }
+.hud-atis.visible .atis-close { pointer-events: auto; }
 body[data-state='flight'] .hud-atis {
   bottom: max(90px, calc(var(--panel-h, 0px) + 20px));
 }

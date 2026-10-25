@@ -74,3 +74,21 @@ hanno la precedenza sui comandi della console. Le manette conservano la posizion
 **Aiuto / F12** contiene la lista aggiornata di tastiera, mouse, gamepad e comandi cockpit,
 oltre a una guida pratica e al glossario. La ricerca funziona anche sulle spiegazioni. Durante
 la lettura il volo è in pausa; alla chiusura viene ripristinato lo stato precedente.
+
+## Smartphone e tablet
+
+I comandi touch compaiono durante il volo sui dispositivi con puntatore tattile:
+
+- **Cloche**: trascina il cerchio a sinistra; in basso cabri, in alto picchi. Rilascia per centrare.
+- **Potenza**: trascina la manetta verticale a destra. Il valore rimane dopo il rilascio.
+- **Pedali e freni**: tieni premuti i pulsanti. Puoi usare più dita insieme alla cloche e alla manetta.
+- **FLAP**: passa alla posizione successiva; dopo il massimo torna a zero.
+- **CARRELLO**: compare sui velivoli con carrello retrattile.
+- **VISTA / PANNELLO**: cambia visuale o dimensione degli strumenti. In orizzontale sugli schermi
+  bassi il pannello si nasconde e si richiama dal pulsante touch, lasciando spazio ai comandi.
+- **Panorama**: trascina la scena con un dito per guardarti intorno.
+- **Mappa**: trascina per spostarti, allarga o avvicina due dita per ingrandire o ridurre.
+
+Aiuto, mappa, checklist e pausa rimangono nella barra in alto. Aprendo un menu o una console,
+i comandi touch momentanei vengono rilasciati. Il ritorno al browser da un’altra applicazione
+mostra il menu di pausa: tocca Riprendi quando vuoi continuare.

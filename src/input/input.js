@@ -103,15 +103,25 @@ export class InputManager {
     listen(canvas, 'contextmenu', (e) => { if (this.enabled) e.preventDefault(); });
     listen(canvas, 'pointerdown', (e) => {
       if (!this.enabled) return;
-      if (e.button === 2) { this._looking = true; this._lastPointer = [e.clientX, e.clientY]; canvas.setPointerCapture?.(e.pointerId); e.preventDefault(); }
+      if (e.button === 2 || e.pointerType === 'touch') {
+        if (this._looking) return;
+        this._looking = true;
+        this._lookPointer = e.pointerId;
+        this._lastPointer = [e.clientX, e.clientY];
+        canvas.setPointerCapture?.(e.pointerId);
+        // touch-action:none on the canvas already prevents browser panning.
+        // Keep touch compatibility clicks intact for the next UI interaction.
+        if (e.pointerType !== 'touch') e.preventDefault();
+      }
     });
-    const stopLook = () => { this._looking = false; };
+    const stopLook = (e) => { if (e.pointerId === this._lookPointer) { this._looking = false; this._lookPointer = null; } };
     listen(canvas, 'pointerup', stopLook);
     listen(canvas, 'pointercancel', stopLook);
     listen(canvas, 'lostpointercapture', stopLook);
     listen(canvas, 'pointermove', (e) => {
       if (!this.enabled) return;
       if (this._looking) {
+        if (e.pointerId !== this._lookPointer) return;
         const [x, y] = this._lastPointer;
         this.onAction('look', { dx: e.clientX - x, dy: e.clientY - y });
         this._lastPointer = [e.clientX, e.clientY];
@@ -132,6 +142,7 @@ export class InputManager {
     this.keys.clear();
     this._buttons.clear();
     this._looking = false;
+    this._lookPointer = null;
     this.mouse = { roll: 0, pitch: 0 };
     if (this.sim?.cockpitInput) {
       for (const key of Object.keys(this.sim.cockpitInput)) {
@@ -282,6 +293,13 @@ export class InputManager {
       { group: 'Mouse', label: 'Leve del cockpit', keys: ['Trascina cursore'] },
       { group: 'Mouse', label: 'Cloche, pedaliera e freni nelle console', keys: ['Trascina cloche', 'Tieni premuto il pulsante'] },
       { group: 'Mouse', label: 'Cloche col mouse (attiva con Y)', keys: ['Muovi il puntatore sulla vista 3D'] },
+      { group: 'Touch', label: 'Beccheggio e rollio', keys: ['Trascina la cloche virtuale'] },
+      { group: 'Touch', label: 'Potenza', keys: ['Cursore manetta touch'] },
+      { group: 'Touch', label: 'Pedaliera e freni', keys: ['Tieni premuti i pulsanti touch'] },
+      { group: 'Touch', label: 'Guardarsi intorno', keys: ['Trascina il panorama con un dito'] },
+      { group: 'Touch', label: 'Flap e carrello', keys: ['Pulsanti FLAP + / FLAP 0 e CARRELLO'] },
+      { group: 'Touch', label: 'Vista e strumenti', keys: ['Pulsanti VISTA e PANNELLO'] },
+      { group: 'Touch', label: 'Sposta e ingrandisci la mappa', keys: ['Trascina', 'Allarga o avvicina due dita'] },
       { group: 'Gamepad standard', label: 'Beccheggio / rollio', keys: ['Stick sinistro'] },
       { group: 'Gamepad standard', label: 'Pedaliera', keys: ['Stick destro orizzontale'] },
       { group: 'Gamepad standard', label: 'Freni differenziali', keys: ['LT / RT (pulsanti 6 / 7)'] },

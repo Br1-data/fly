@@ -132,7 +132,7 @@ export class HelpOverlay {
   renderQuick() {
     this.content.appendChild(h('div.help-start-note', h('b', 'Un buon primo volo'),
       h('p', 'Scegli Volo libero → Falco T-172 → In pista → Sereno. Parti con i motori già accesi. Usa correzioni piccole e lascia al velivolo il tempo di reagire.'),
-      h('p', 'Consulta questa guida con F12 quando vuoi. La pausa di prima dell’apertura viene ripristinata quando chiudi l’aiuto.')));
+      h('p', 'Tocca Aiuto nella barra in alto oppure premi F12. La pausa di prima dell’apertura viene ripristinata quando chiudi l’aiuto.')));
     const cards = h('div.help-quick-grid');
     for (const guide of QUICK_GUIDE) cards.appendChild(h('section.help-guide-card', h('h2', guide.title), h('ol', guide.steps.map((step) => h('li', step)))));
     this.content.appendChild(cards);

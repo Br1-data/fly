@@ -32,6 +32,12 @@ jobs:
           CHROMIUM_PATH: /opt/google/chrome/chrome
           SMOKE_ROOT: dist/web
           SMOKE_BASE_PATH: /fly/
+      - name: Verify mobile controls and responsive bundle
+        run: npm run smoke:mobile
+        env:
+          CHROMIUM_PATH: /opt/google/chrome/chrome
+          SMOKE_ROOT: dist/web
+          SMOKE_BASE_PATH: /fly/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist/web

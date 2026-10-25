@@ -4,8 +4,9 @@ import { getTerrain } from '../world/terrain-height.js';
 import { AIRPORTS, NAVAIDS, CITIES, LAKES, WORLD_HALF_SIZE, runwayGeometry } from '../world/world-data.js';
 import { NM } from '../core/units.js';
 import { DEG } from '../core/math.js';
+import { isTouchDevice } from '../core/device.js';
 
-const BASE_RES = 640;
+const BASE_RES = isTouchDevice() ? 320 : 640;
 const EXTENT = WORLD_HALF_SIZE; // metres from centre
 
 export class MapOverlay {
@@ -45,6 +46,7 @@ export class MapOverlay {
   }
 
   hide() {
+    this._cancelMapPointers?.();
     this.visible = false;
     this.el.classList.remove('visible');
   }
@@ -55,7 +57,7 @@ export class MapOverlay {
 
   _resize() {
     const r = this.canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, isTouchDevice() ? 1 : 2);
     this.canvas.width = Math.max(10, Math.round(r.width * dpr));
     this.canvas.height = Math.max(10, Math.round(r.height * dpr));
     this.dpr = dpr;
@@ -131,6 +133,9 @@ export class MapOverlay {
   _bindEvents() {
     const c = this.canvas;
     let drag = null;
+    let pinch = null;
+    const pointers = new Map();
+    this._cancelMapPointers = () => { drag = null; pinch = null; pointers.clear(); };
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -143,16 +148,38 @@ export class MapOverlay {
       this.followBtn.classList.remove('active');
     }, { passive: false });
     c.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      drag = { x: e.clientX, y: e.clientY, cn: this.cn, ce: this.ce, moved: false };
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       c.setPointerCapture(e.pointerId);
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        const rect = c.getBoundingClientRect();
+        pinch = { distance: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), scale: this.scale,
+          anchor: this._toWorld((a.x + b.x) / 2 - rect.left, (a.y + b.y) / 2 - rect.top) };
+        drag = null;
+        this.follow = false;
+        this.followBtn.classList.remove('active');
+      } else if (pointers.size === 1) {
+        drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cn: this.cn, ce: this.ce, moved: false };
+      }
     });
     c.addEventListener('pointermove', (e) => {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        const rect = c.getBoundingClientRect();
+        this.scale = Math.min(0.2, Math.max(0.0025, pinch.scale * Math.hypot(b.x - a.x, b.y - a.y) / pinch.distance));
+        this.ce = pinch.anchor.e - ((a.x + b.x) / 2 - rect.left - rect.width / 2) / this.scale;
+        this.cn = pinch.anchor.n + ((a.y + b.y) / 2 - rect.top - rect.height / 2) / this.scale;
+        return;
+      }
       if (!drag) {
         this._hover = this._pick(e.offsetX, e.offsetY);
         c.style.cursor = this._hover ? 'pointer' : 'grab';
         return;
       }
+      if (e.pointerId !== drag.id) return;
       const dx = e.clientX - drag.x,
         dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
@@ -164,11 +191,22 @@ export class MapOverlay {
       }
     });
     c.addEventListener('pointerup', (e) => {
+      if (!pointers.has(e.pointerId)) return;
       if (drag && !drag.moved) {
         const p = this._pick(e.offsetX, e.offsetY);
         if (p) this.app.flightSim.command('gpsDirect', { id: p.id, n: p.n, e: p.e });
       }
+      pointers.delete(e.pointerId);
       drag = null;
+      if (pinch && pointers.size === 1) {
+        const [id, point] = [...pointers][0];
+        drag = { id, ...point, cn: this.cn, ce: this.ce, moved: true };
+      }
+      pinch = null;
+    });
+    c.addEventListener('pointercancel', () => this._cancelMapPointers());
+    c.addEventListener('lostpointercapture', (e) => {
+      if (pointers.has(e.pointerId)) this._cancelMapPointers();
     });
     window.addEventListener('resize', () => this.visible && this._resize());
   }
@@ -186,7 +224,7 @@ export class MapOverlay {
 
   _pick(x, y) {
     let best = null,
-      bd = 14;
+      bd = isTouchDevice() ? 24 : 14;
     for (const a of AIRPORTS) {
       const [sx, sy] = this._toScreen(a.n, a.e);
       const d = Math.hypot(sx - x, sy - y);

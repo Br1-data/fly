@@ -90,6 +90,17 @@ export const GLOSSARY = [
 
 export const QUICK_GUIDE = [
   {
+    title: 'Su smartphone e tablet',
+    steps: [
+      'La grafica parte in modalità leggera sui dispositivi touch. Puoi scegliere un livello diverso da Impostazioni; il pannello compatto lascia spazio alla visuale e ai comandi.',
+      'Trascina la cloche circolare in basso a sinistra: verso il basso per cabrare, in alto per picchiare, lateralmente per inclinare le ali. Rilasciando il dito la cloche torna al centro.',
+      'Scorri la manetta POTENZA a destra. Puoi usare contemporaneamente cloche, pedaliera e freni con dita diverse; la potenza selezionata rimane al rilascio.',
+      'Tocca FLAP per avanzare di una posizione: dopo l’ultima si torna a zero. CARRELLO compare solo sui velivoli con carrello retrattile. VISTA cambia visuale e PANNELLO regola gli strumenti.',
+      'Tocca Impianti o Radio per aprire le console; la cloche touch viene sospesa mentre le consulti. Trascina il panorama con un dito per guardarti intorno. Nella mappa puoi usare due dita per lo zoom.',
+      'Aiuto e Pausa sono sempre nella barra in alto. Il volo va in pausa anche quando il browser passa in secondo piano; alla ripresa tocca Riprendi.',
+    ],
+  },
+  {
     title: 'Il tuo primo volo',
     steps: [
       'Scegli Volo libero → Falco T-172, posizione In pista e meteo Sereno. È il velivolo più semplice per imparare; lascia il cockpit già acceso per il primo tentativo.',

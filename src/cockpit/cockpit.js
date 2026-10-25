@@ -2,6 +2,7 @@
 import { h } from '../ui/dom.js';
 import { clamp } from '../core/math.js';
 import { AIRPORTS } from '../world/world-data.js';
+import { isTouchDevice } from '../core/device.js';
 
 const num = (v, d = 0) => Number.isFinite(v) ? v.toFixed(d) : '—';
 const heading = (v) => String(Math.round(v || 0) % 360 || 360).padStart(3, '0');
@@ -10,9 +11,13 @@ const time = (v) => `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(Mat
 export class Cockpit {
   constructor(root, sim) {
     this.root = root; this.sim = sim;
-    this.mode = 'full'; this.view = 'orbit'; this.night = 0; this.hudVisible = true;
+    this.touch = isTouchDevice();
+    this.mode = this.touch && (window.innerWidth <= 1100 || window.innerHeight <= 700) ? 'mini' : 'full';
+    this.view = 'orbit'; this.night = 0; this.hudVisible = true;
+    this._modeChosen = false; this._nextUI = 0; this._nextGauge = 0;
     this.switches = []; this.readouts = [];
-    this.consoles = { left: window.innerWidth > 1000 && window.innerHeight > 640, right: window.innerWidth > 1000 && window.innerHeight > 640 };
+    const openConsoles = this.mode === 'full' && window.innerWidth > 1000 && window.innerHeight > 640;
+    this.consoles = { left: openConsoles, right: openConsoles };
     if (!document.getElementById('ca-cockpit-style')) document.head.appendChild(h('link#ca-cockpit-style', { rel: 'stylesheet', href: new URL('./cockpit.css', import.meta.url).href }));
     this.canvas = h('canvas.ca-instruments', { role: 'img', 'aria-label': 'Strumenti di volo: velocità, assetto, altitudine, prua, virata e variometro' });
     this.name = h('b'); this.status = h('span.ca-status');
@@ -22,7 +27,7 @@ export class Cockpit {
     this.footer = h('div.ca-footer', { 'aria-label': 'Pedestallo: manetta e configurazione velivolo' });
     this.el = h('section.ca-panel', { 'aria-label': 'Pannello strumenti' },
       h('header.ca-header', this.leftToggle, this.name, this.status, this.rightToggle,
-        h('button', { type: 'button', 'aria-label': 'Cambia dimensione pannello', title: 'Pannello completo, compatto o nascosto (W). Le console si riaprono dai pulsanti laterali.', onclick: () => this.cycleMode() }, 'W · vista')),
+        h('button', { type: 'button', 'aria-label': 'Cambia dimensione pannello', title: 'Pannello completo, compatto o nascosto (W). Le console si riaprono dai pulsanti laterali.', onclick: () => this.cycleMode() }, this.touch ? 'Strumenti' : 'W · vista')),
       this.apStrip, h('div.ca-body', this.canvas), this.footer);
     this.leftContent = h('div.ca-console-scroll'); this.rightContent = h('div.ca-console-scroll');
     const consolePanel = (side, title, content) => h(`aside.ca-console.ca-${side}`, { 'aria-label': title },
@@ -50,7 +55,7 @@ export class Cockpit {
   click(kind = 'switch') { window.dispatchEvent(new CustomEvent('cieli:click', { detail: { kind } })); }
   command(name, value, kind = 'switch') {
     if (typeof name === 'function') name(); else this.sim.command(name, value);
-    this.click(kind); this.update();
+    this.click(kind); this._nextUI = 0; this.update();
   }
   action(label, name, arg, description = label) {
     return h('button.ca-action', { type: 'button', title: description, 'aria-label': label, onclick: () => this.command(name, arg, 'button') }, label);
@@ -60,18 +65,27 @@ export class Cockpit {
     this.switches.push({ b, read }); return b;
   }
   knob(label, read, command, step, description = label) {
-    const value = h('span');
+    const digits = document.createTextNode('');
+    const value = h('span', h('small.ca-knob-label', label), digits);
+    let previous;
     const adjust = (delta) => { if (typeof command === 'function') command(delta); else this.command(command, delta, 'knob'); };
     const el = h('div.ca-knob', { title: `${description}. Pulsanti o rotella per regolare.`, onwheel: (e) => { e.preventDefault(); adjust(e.deltaY < 0 ? step : -step); } },
       h('button', { type: 'button', 'aria-label': `Riduci ${label}`, onclick: () => adjust(-step) }, '−'), value,
       h('button', { type: 'button', 'aria-label': `Aumenta ${label}`, onclick: () => adjust(step) }, '+'));
-    this.readouts.push(() => value.replaceChildren(h('small.ca-knob-label', label), document.createTextNode(read())));
+    this.readouts.push(() => {
+      const next = String(read());
+      if (next !== previous) { digits.textContent = next; previous = next; }
+    });
     return el;
   }
   lever(label, read, write, { min = 0, max = 1, step = 0.01, format = (v) => `${Math.round(v * 100)}%`, description = label, className = '' } = {}) {
     const output = h('output');
     const input = h('input', { type: 'range', min, max, step, 'aria-label': label, title: description, oninput: (e) => { write(Number(e.target.value)); output.textContent = format(Number(e.target.value)); this.click('lever'); } });
-    this.readouts.push(() => { const v = read(); if (document.activeElement !== input) input.value = v; output.textContent = format(v); });
+    this.readouts.push(() => {
+      const v = read(), text = format(v);
+      if (document.activeElement !== input && Number(input.value) !== v) input.value = v;
+      if (output.textContent !== text) output.textContent = text;
+    });
     return h(`label.ca-lever${className ? '.' + className : ''}`, { title: description }, h('span.ca-lever-label', label), input, output);
   }
   hold(label, key, value, description = label) {
@@ -101,7 +115,7 @@ export class Cockpit {
   setAircraft(def) {
     this.releaseHeld();
     if (this.sim.cockpitInput) delete this.sim.cockpitInput.throttle2;
-    this.def = def; this.name.textContent = def.name; this.switches = []; this.readouts = [];
+    this.def = def; this.name.textContent = def.name; this.switches = []; this.readouts = []; this._nextUI = 0;
     this.leftContent.replaceChildren(); this.rightContent.replaceChildren(); this.apStrip.replaceChildren(); this.footer.replaceChildren();
     const s = this.sim, system = () => s.fm?.systems || {}, ap = () => s.ap || {}, engine = () => s.fm?.engines[0] || {};
     const row = (...items) => this.row(...items);
@@ -224,27 +238,47 @@ export class Cockpit {
 
   setMode(mode) {
     if(!['full','mini','hidden'].includes(mode))return;
-    this.mode=mode;
+    this.mode=mode; this._modeChosen = true;
     if(mode==='mini')this.consoles={left:false,right:false};
     if(mode==='full'&&this.width>1000&&this.height>640)this.consoles={left:true,right:true};
     if(mode==='hidden')this.releaseHeld();
     this._visibility();
   }
-  cycleMode(){this.setMode(['full','mini','hidden'][(['full','mini','hidden'].indexOf(this.mode)+1)%3]);}
+  cycleMode() {
+    // The separate touch PANNELLO button can always restore hidden instruments.
+    // A full-height pedestal leaves no room for the flight pads in landscape.
+    if (this.touch && this.height <= 500) this.setMode(this.mode === 'mini' ? 'hidden' : 'mini');
+    else if (this.touch) this.setMode(this.mode === 'mini' ? 'full' : 'mini');
+    else this.setMode(['full','mini','hidden'][(['full','mini','hidden'].indexOf(this.mode)+1)%3]);
+  }
   setView(view){this.view=view;if(view!=='cockpit')this.releaseHeld();this._visibility();}
   setHudVisible(visible){this.hudVisible=!!visible;this._visibility();}
-  toggleConsole(side){this.consoles[side]=!this.consoles[side];if(this.consoles[side]&&(this.width<=1000||this.height<=640))this.consoles[side==='left'?'right':'left']=false;this._visibility();}
+  toggleConsole(side){this.consoles[side]=!this.consoles[side];if(this.consoles[side]&&(this.touch||this.width<=1000||this.height<=640))this.consoles[side==='left'?'right':'left']=false;this._visibility();}
   setNight(night) {
     this.night = clamp(night, 0, 1);
     this.shell.style.filter = `brightness(${1 - this.night * (this.sim.fm?.systems.lights.panel ? 0.08 : 0.18)})`;
   }
-  resize(width,height){const wasCompact=this.width<=1000||this.height<=640;this.width=width;this.height=height;const compact=width<=1000||height<=640;if(this.shell&&compact&&!wasCompact)this.consoles={left:false,right:false};if(this.shell)this._visibility();}
+  resize(width, height) {
+    const wasCompact = this.width <= 1000 || this.height <= 640;
+    this.width = width; this.height = height;
+    const compact = width <= 1000 || height <= 640;
+    if (this.touch && height <= 500 && this.mode === 'full') {
+      this.mode = 'mini'; this.consoles = { left: false, right: false };
+    }
+    if (this.touch && !this._modeChosen && (width <= 1100 || height <= 700)) {
+      this.mode = 'mini'; this.consoles = { left: false, right: false };
+    } else if (this.shell && compact && !wasCompact) this.consoles = { left: false, right: false };
+    this._nextUI = 0; this._nextGauge = 0;
+    if (this.shell) this._visibility();
+  }
   _visibility(){
     const visible=this.view==='cockpit'&&this.mode!=='hidden';
     this.shell.hidden=!visible;this.shell.classList.toggle('ca-mini',this.mode==='mini');
     this.left.hidden=!this.consoles.left;this.right.hidden=!this.consoles.right;
     this.leftToggle.setAttribute('aria-expanded',String(this.consoles.left));this.rightToggle.setAttribute('aria-expanded',String(this.consoles.right));
     this.hud.hidden=this.def?.panel!=='jet'||!this.hudVisible;
+    this._nextUI = 0; this._nextGauge = 0;
+    document.body.classList.toggle('cockpit-console-open', visible && this.touch && (this.consoles.left || this.consoles.right));
     this.updateLayoutVariables();
   }
   updateLayoutVariables(){
@@ -257,12 +291,22 @@ export class Cockpit {
   }
   update(){
     const{fm,instruments:i,ap}=this.sim;if(!fm||this.shell.hidden)return;
-    this.updateLayoutVariables();
-    for(const{b,read}of this.switches)b.setAttribute('aria-pressed',String(!!read()));
-    for(const read of this.readouts)read();
-    const sys=fm.systems;
-    this.status.textContent=`${num(sys.busVolts)} V · ${sys.parkingBrake?'FRENO P':'LIBERO'} · ${ap.engaged?`AP ${ap.lateral}/${ap.vertical}`:'MANUALE'}`;
-    this.status.style.color=sys.parkingBrake||sys.busVolts<18?'#ffbd6a':'#9bdba4';
+    const now = performance.now();
+    if (now >= this._nextUI) {
+      this._nextUI = now + 50; // Console DOM runs at 20 Hz; gauges remain independent.
+      this.updateLayoutVariables();
+      for (const { b, read } of this.switches) {
+        const pressed = String(!!read());
+        if (b.getAttribute('aria-pressed') !== pressed) b.setAttribute('aria-pressed', pressed);
+      }
+      for (const read of this.readouts) read();
+      const sys = fm.systems;
+      const status = `${num(sys.busVolts)} V · ${sys.parkingBrake ? 'FRENO P' : 'LIBERO'} · ${ap.engaged ? `AP ${ap.lateral}/${ap.vertical}` : 'MANUALE'}`;
+      if (this.status.textContent !== status) this.status.textContent = status;
+      this.status.style.color = sys.parkingBrake || sys.busVolts < 18 ? '#ffbd6a' : '#9bdba4';
+    }
+    if (this.touch && now < this._nextGauge) return;
+    this._nextGauge = now + 1000 / 30;
     const rect=this.canvas.getBoundingClientRect();if(rect.width<100||rect.height<40)return;
     const dpr=Math.min(window.devicePixelRatio||1,2),w=rect.width,hh=rect.height;
     if(this.canvas.width!==Math.round(w*dpr)||this.canvas.height!==Math.round(hh*dpr)){this.canvas.width=Math.round(w*dpr);this.canvas.height=Math.round(hh*dpr);}
@@ -277,8 +321,9 @@ export class Cockpit {
 
   drawMini(c, w, hh, i, fm) {
     const cells = [['IAS', num(i.asi), 'kt'], ['ALT', num(i.alt), 'ft'], ['PRUA', heading(i.dg), '°'], ['V/S', num(i.vsi), 'ft/min'], ['POTENZA', num(this.sim.pilot.throttle * 100), '%'], ['CARBURANTE', num(fm.systems.fuelTotal), 'kg']];
-    cells.forEach(([label, value, unit], index) => {
-      const x = w / cells.length * (index + 0.5);
+    const visibleCells = this.touch && w < 480 ? cells.slice(0, 4) : cells;
+    visibleCells.forEach(([label, value, unit], index) => {
+      const x = w / visibleCells.length * (index + 0.5);
       this.text(c, label, x, 12, 9, '#91a5ae'); this.text(c, value, x, 32, 20, '#9bf0c0'); this.text(c, unit, x, 51, 9, '#91a5ae');
     });
   }

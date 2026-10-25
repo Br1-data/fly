@@ -88,6 +88,31 @@ Il pulsante **Aiuto** in alto o **F12** apre una guida rapida, tutti i comandi e
 ricercabile di 80 termini. Il volo e il timer missione restano fermi durante la consultazione;
 **Esc** o **F12** chiude la guida e ripristina la pausa precedente.
 
+### Smartphone e tablet
+
+La versione web dispone di controlli multitouch: cloche virtuale, manetta, pedaliera e freni
+si usano anche contemporaneamente. I pulsanti FLAP, CARRELLO (quando previsto), VISTA e PANNELLO
+consentono di volare senza tastiera. Trascina il panorama per guardarti intorno; nella mappa
+allarga o avvicina due dita per lo zoom.
+
+Su touch la prima configurazione usa qualità bassa, pannello compatto e un obiettivo di 30 fps.
+Il framebuffer è limitato e il terreno usa 49 tasselli; puoi cambiare qualità dalle impostazioni.
+Le scelte salvate vengono rispettate. Menu, missioni, aiuto e console si adattano a verticale e
+orizzontale, con pulsanti di almeno 44 px e spazi per le aree sicure del dispositivo.
+Quando il browser passa in secondo piano il volo viene messo in pausa; i comandi momentanei
+si rilasciano anche in caso di gesto interrotto o rotazione dello schermo.
+
+```bash
+npm run smoke:mobile
+# Oppure sul pacchetto pronto per Pages:
+SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/ npm run smoke:mobile
+```
+
+La prova automatica usa Chromium con emulazione touch e tre dita simultanee; verifica layout
+da 320 × 568 a 768 × 1024, incluso 844 × 390 orizzontale. Non sostituisce una misura delle
+prestazioni su hardware Android/iOS reale. Il workflow Pages esegue sia la prova desktop sia
+quella mobile prima del deploy. Il bundle web include solo i moduli three.js effettivamente usati.
+
 ### Versione web e GitHub Pages
 
 ```bash

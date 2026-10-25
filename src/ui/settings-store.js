@@ -1,5 +1,6 @@
 // Persistent application settings (graphics, audio, realism, interface).
 import { DEFAULT_SETTINGS } from '../sim/simulation.js';
+import { defaultQuality } from '../core/device.js';
 
 const KEY = 'cieli-aperti.settings';
 
@@ -23,6 +24,7 @@ function storage() {
 
 export function loadSettings() {
   const s = structuredClone(DEFAULT_APP_SETTINGS);
+  s.quality = defaultQuality();
   try {
     const raw = storage()?.getItem(KEY);
     if (raw) {
@@ -33,7 +35,7 @@ export function loadSettings() {
   } catch {
     // corrupted or unavailable storage: defaults
   }
-  if (!['low', 'medium', 'high'].includes(s.quality)) s.quality = 'medium';
+  if (!['low', 'medium', 'high'].includes(s.quality)) s.quality = defaultQuality();
   return s;
 }
 

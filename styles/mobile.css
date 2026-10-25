@@ -1,0 +1,143 @@
+/* Mobile layout keeps menus scrollable and reserves the device's safe areas. */
+html, body { overscroll-behavior: none; }
+#view3d, #cockpit-root, #hud-root, #screen-root, #overlay-root { height: 100dvh; }
+#view3d, .map-canvas { touch-action: none; }
+button, select, input[type='range'] { touch-action: manipulation; }
+
+@media (max-width: 820px), (pointer: coarse) {
+  .screen {
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    min-width: 0;
+  }
+  .main-menu { justify-content: center; }
+  .menu-panel { max-height: 100%; overflow-y: auto; padding: 22px 18px 16px; }
+  .brand.big .brand-name { font-size: clamp(22px, 6vw, 32px); letter-spacing: 4px; }
+  .brand.big .brand-mark { font-size: 30px; }
+  .brand.big .brand-sub { margin-left: 42px; font-size: 11px; }
+  .menu-list { gap: 6px; margin: 18px 0 12px; }
+  .menu-item { gap: 10px; padding: 10px 12px; }
+  .menu-text b { font-size: 16px; }
+  .menu-text small { font-size: 12px; }
+  .panel-head { gap: 8px; padding: 10px 12px; flex-wrap: wrap; flex-shrink: 0; }
+  .panel-head h1 { font-size: 20px; }
+  .panel-head .big { padding: 10px 14px; font-size: 16px; }
+  .panel-body { padding: 14px; min-width: 0; }
+  .ff-grid { grid-template-columns: 1fr; gap: 12px; padding: 14px; min-height: 0; }
+  .ff-summary { padding: 8px 12px; }
+  .summary-line { font-size: 11px; gap: 4px 10px; }
+  .ac-card { padding: 12px; }
+  .weather-presets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .missions-grid { grid-template-columns: 1fr; grid-template-rows: minmax(100px, 38%) minmax(0, 1fr); }
+  .mission-list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .mission-brief { padding: 14px; }
+  .brief-inner h2 { font-size: 22px; }
+  .brief-meta { flex-wrap: wrap; gap: 6px 12px; }
+  .settings-grid, .check-grid, .joy-tuning { grid-template-columns: 1fr; }
+  .settings-grid section.span2 { grid-column: auto; }
+  .keys-grid { columns: 1; }
+  .tabs { flex-wrap: wrap; }
+  .axis-table { display: block; overflow-x: auto; }
+  .axis-bar { width: 100px; }
+  .dialog { min-width: 0; width: min(620px, 100%); max-width: 100%; max-height: calc(100dvh - 20px); overflow-y: auto; padding: 20px; }
+  .overlay { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  .pause-stats { grid-template-columns: 1fr 1fr; }
+  .landing-report { min-width: 0; width: calc(100vw - 24px); padding: 12px; top: 70px; }
+  .lr-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lr-head { flex-wrap: wrap; gap: 6px; }
+  .loading-inner .brand-name { font-size: 19px; letter-spacing: 3px; }
+  .loading-inner .brand-sub { font-size: 11px; }
+  .loading-inner .brand { margin-bottom: 16px; }
+  .loading-title { font-size: 17px; margin-bottom: 12px; }
+  .loading-tip { margin-top: 18px; font-size: 12px; }
+  #fatal-error .dialog { margin: 8px; }
+  .checklist-overlay { top: 64px; left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--panel-h, 0px) - 76px); }
+  .cl-foot { flex-wrap: wrap; gap: 5px; }
+  .map-frame { width: 100%; height: 100%; border-radius: 8px; }
+  .map-overlay { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  .map-toolbar { gap: 4px; left: 5px; right: 5px; top: 5px; padding: 4px; }
+  .map-toolbar b { font-size: 13px; }
+  .map-toolbar button { font-size: 11px; padding: 5px 8px; }
+  .map-info { left: 8px; right: 8px; bottom: 8px; width: auto; font-size: 10px; white-space: normal; }
+  .map-help { display: none; }
+}
+
+@media (pointer: coarse) {
+  button, button.small, button.big, select { min-height: 44px; }
+  button { min-width: 44px; }
+  input[type='search'], input[type='text'], input[type='number'], select { font-size: 16px; }
+  input[type='range'] { min-height: 32px; }
+  input[type='range']::-webkit-slider-thumb { width: 26px; height: 26px; }
+  .field.check { min-height: 44px; align-items: center; }
+  .panel, .menu-panel, .dialog, .overlay, .hud-strip, .hud-mission, .help-overlay { backdrop-filter: none; }
+  .touch-device .help-overlay { backdrop-filter: none; }
+  .touch-device .help-overlay { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  .touch-device .ca-header { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  .touch-device .ca-panel { height: calc(var(--ca-bottom) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); }
+  .touch-device .ca-console { bottom: calc(min(var(--ca-bottom), 120px) + env(safe-area-inset-bottom)); }
+  .touch-device .ca-left { left: max(8px, env(safe-area-inset-left)); }
+  .touch-device .ca-right { right: max(8px, env(safe-area-inset-right)); }
+  .touch-device .ca-shell select { font-size: 16px; }
+  .flight-toolbar { top: max(6px, env(safe-area-inset-top)); max-width: calc(100vw - 16px); gap: 4px; padding: 3px; }
+  .flight-toolbar button { font-size: 12px; padding: 6px 10px; }
+  .flight-toolbar kbd { display: none; }
+  .hud-toasts, body[data-state='flight'].cockpit-view .hud-toasts { top: 64px; left: 8px; max-width: min(300px, calc(100vw - 16px)); }
+  .toast { padding: 7px 10px; font-size: 11px; }
+  .hud.has-mission .hud-toasts .toast.info { display: none; }
+  .hud-mission, body[data-state='flight'].cockpit-view .hud-mission { top: 64px; right: 8px; width: min(280px, calc(100vw - 16px)); max-height: 25dvh; overflow-y: auto; padding: 8px 10px; pointer-events: auto; touch-action: pan-y; }
+  .hud-mission * { pointer-events: auto; }
+  .hm-title { font-size: 12px; }
+  .hm-objectives, .hm-hint { font-size: 11px; }
+  .hud-warn { font-size: 24px; letter-spacing: 3px; }
+  .hud-flash { font-size: 14px; max-width: 80vw; }
+  .hud-strip { max-width: calc(100vw - 16px); gap: 0; top: 64px; bottom: auto; padding: 4px; overflow-x: auto; pointer-events: auto; }
+  .hud-strip .hud-cell:nth-child(n+6) { display: none; }
+  .hud-cell { min-width: 62px; padding: 2px 7px; }
+  .hud-cell b { font-size: 13px; }
+  .hud-cell small { font-size: 9px; }
+  .touch-device body[data-state='flight'] .hud-atis {
+    left: 50%; top: 120px; bottom: auto;
+    width: min(300px, calc(100vw - 16px)); max-height: 112px;
+    overflow-y: auto; padding: 6px 10px; font-size: 11px;
+    transform: translate(-50%, 8px); pointer-events: none; touch-action: pan-y;
+  }
+  .touch-device body[data-state='flight'] .hud-atis.visible { transform: translate(-50%, 0); pointer-events: auto; }
+  .touch-device .hud-atis.visible * { pointer-events: auto; }
+  .touch-device body.cockpit-console-open .hud-atis { visibility: hidden; }
+  .cl-items li { min-height: 44px; align-items: center; }
+  .help-overlay .help-search { font-size: 16px; }
+  .help-overlay .help-header { padding: 14px; gap: 10px; }
+  .help-overlay .help-header h1 { font-size: 22px; }
+  .help-overlay .help-subtitle { font-size: 12px; }
+  .help-overlay .help-content { padding: 14px; }
+  .help-overlay .help-footer { padding: 8px 14px; }
+  .help-overlay .help-footer { display: none; }
+  .help-overlay .help-tabs { padding: 0 8px; }
+  .help-overlay .help-search-bar { padding: 12px 14px 0; gap: 4px 8px; }
+  .help-overlay .help-result-status { min-width: 65px; font-size: 11px; }
+  .help-overlay .help-search-label { font-size: 11px; }
+  .help-overlay .help-eyebrow { display: none; }
+  .help-overlay .help-next-links { flex-wrap: wrap; }
+}
+
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 550px) {
+  .menu-panel { width: min(740px, 100%); padding: 12px 18px; }
+  .menu-list { display: grid; grid-template-columns: 1fr 1fr; margin: 10px 0; }
+  .brand.big .brand-name { font-size: 23px; }
+  .brand.big .brand-sub { width: auto; margin: 0; }
+  .menu-footer { padding-top: 8px; font-size: 11px; }
+  .flight-toolbar { top: max(3px, env(safe-area-inset-top)); }
+  .help-overlay { padding: 4px; }
+  .help-overlay .help-subtitle, .help-overlay .help-footer { display: none; }
+  .help-overlay .help-header { padding: 8px 12px; align-items: center; }
+  .help-overlay .help-header h1 { margin: 0; font-size: 20px; }
+  .help-overlay .help-close { margin: 0; }
+  .help-overlay .help-tabs { padding: 0 8px; }
+  .help-overlay .help-tab { padding: 6px 12px; }
+  .help-overlay .help-search-bar { padding-top: 6px; grid-template-columns: 1fr auto; }
+  .help-overlay .help-search-label { display: none; }
+  .help-overlay .help-search { padding: 6px 10px; }
+  .help-overlay .help-content { padding-top: 10px; }
+  .help-overlay .help-command-grid, .help-overlay .help-glossary { grid-template-columns: 1fr 1fr; }
+  .help-overlay .help-command-row { grid-template-columns: 1fr; gap: 5px; }
+  .help-overlay .help-command-row dd { justify-content: flex-start; }
+}

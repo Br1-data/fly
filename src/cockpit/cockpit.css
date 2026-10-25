@@ -12,3 +12,45 @@
 @media(max-width:1000px),(max-height:640px){.ca-shell{--ca-side:0px;--ca-bottom:244px}.ca-panel{left:0;right:0}.ca-post-left{left:8px}.ca-post-right{right:8px}.ca-console{top:auto;bottom:var(--ca-bottom);width:min(280px,85vw);max-height:calc(100% - var(--ca-bottom) - 75px);border-radius:8px;z-index:4;box-shadow:0 0 25px #000b}.ca-console-head{padding:8px}.ca-mini{--ca-bottom:105px}.ca-body{height:116px}.ca-mini .ca-body{height:73px}.ca-status{display:none}.ca-header b{font-size:10px}.ca-header{justify-content:space-between}.ca-canopy{box-shadow:inset 0 7px 0 #35434b}.ca-post{width:12px}.ca-knob span{font-size:10px}.ca-console .ca-switch,.ca-console .ca-action{font-size:11px}.ca-console .ca-knob span{font-size:12px}.ca-console .ca-lever{font-size:11px}}
 @media(max-height:640px){.ca-shell{--ca-bottom:244px}.ca-body{height:116px}.ca-mini{--ca-bottom:105px}.ca-mini .ca-body{height:73px}}
 @media(max-width:600px){.ca-header b{max-width:105px;overflow:hidden;text-overflow:ellipsis}.ca-header button{font-size:8px;padding:4px}.ca-header{padding:3px 10px;gap:4px}.ca-shell{--ca-bottom:284px}.ca-body{height:156px}.ca-mini{--ca-bottom:105px}.ca-mini .ca-body{height:73px}.ca-jet-hud{width:280px;height:180px;left:calc(50% - 140px)}.ca-console{max-height:calc(100% - var(--ca-bottom) - 65px)}}
+
+/* Native-size targets and independent drawers on phones and tablets. */
+@media (pointer: coarse) {
+  .ca-shell{--ca-bottom:304px}
+  .ca-header{height:44px;gap:4px;padding:0 8px;letter-spacing:.3px}
+  .ca-header button{min-height:44px;min-width:44px;padding:7px;font-size:11px;touch-action:manipulation}
+  .ca-header b{font-size:10px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center}
+  .ca-status{display:none}
+  .ca-ap-strip{height:56px;padding:4px 8px;gap:5px;touch-action:pan-x}
+  .ca-ap-strip .ca-knob{min-width:145px}
+  .ca-ap-strip>.ca-switch{min-width:50px}
+  .ca-body{height:126px}
+  .ca-footer{height:74px;gap:10px;touch-action:pan-x}
+  .ca-footer .ca-lever{width:170px}
+  .ca-footer .ca-lever input{width:120px}
+  .ca-shell .ca-action,.ca-shell .ca-switch{min-height:44px;min-width:44px;padding:9px 7px;font-size:12px;touch-action:manipulation}
+  .ca-shell .ca-knob button{height:44px;min-width:44px;font-size:19px;touch-action:manipulation}
+  .ca-shell .ca-knob span{font-size:12px}
+  .ca-shell .ca-knob-label{font-size:9px}
+  .ca-shell .ca-lever{font-size:12px}
+  .ca-shell .ca-lever input{min-height:44px;touch-action:pan-y}
+  .ca-shell .ca-lever output{font-size:12px}
+  .ca-shell .ca-select,.ca-shell .ca-xpdr-digits select{min-height:44px;font-size:14px;touch-action:manipulation}
+  .ca-console{top:64px;bottom:min(var(--ca-bottom),120px);max-height:none;width:min(340px,calc(100vw - 16px));border-radius:10px;z-index:4;box-shadow:0 0 28px #000b}
+  .ca-console-head{min-height:52px;padding:4px 8px;font-size:11px}
+  .ca-console-head button{min-width:44px;min-height:44px;padding:5px;font-size:20px;touch-action:manipulation}
+  .ca-console-scroll{padding:4px 10px 24px;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+  .ca-section>summary{display:flex;align-items:center;min-height:44px;padding:8px 2px;font-size:11px;touch-action:manipulation}
+  .ca-readout{font-size:12px}
+  .ca-note{font-size:11px}
+  .ca-yoke{height:100px}
+  .ca-mini{--ca-bottom:105px}
+  .ca-mini .ca-body{height:57px}
+  .ca-mini .ca-ap-strip,.ca-mini .ca-footer{display:none}
+}
+@media (pointer: coarse) and (max-width:600px) {
+  .ca-header b{display:none}
+  .ca-header{justify-content:space-between}
+  .ca-console{left:8px;right:8px;width:auto}
+  .ca-shell .ca-row{gap:6px}
+  .ca-ap-strip .ca-row{flex-wrap:nowrap}
+}
