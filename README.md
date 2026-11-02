@@ -109,9 +109,16 @@ si usano anche contemporaneamente. I pulsanti FLAP, CARRELLO (quando previsto), 
 consentono di volare senza tastiera. Trascina il panorama per guardarti intorno; nella mappa
 allarga o avvicina due dita per lo zoom.
 
-Su touch la prima configurazione usa qualità bassa, pannello compatto e un obiettivo di 30 fps.
-Il framebuffer è limitato e il terreno usa 49 tasselli; puoi cambiare qualità dalle impostazioni.
-Le scelte salvate vengono rispettate. Menu, missioni, aiuto e console si adattano a verticale e
+Sugli smartphone la prima configurazione usa qualità bassa, pannello compatto e un obiettivo di
+30 fps; il framebuffer è limitato e il terreno usa 49 tasselli. Su **iPad** e tablet (riconosciuti anche
+quando Safari si presenta come Mac) parte in qualità media a 60 fps, con antialiasing, risoluzione
+1,5× e pannello strumenti completo anche in verticale, comandi touch più grandi e tasselli generati in
+un Web Worker per un volo senza scatti. Su tutti i dispositivi touch la risoluzione si adatta da sola
+se il frame rate scende. Le scelte salvate vengono rispettate.
+
+Su iPad conviene aggiungere il gioco alla schermata Home (Safari → Condividi → «Aggiungi alla schermata
+Home»): si apre a schermo intero senza barre del browser. Con una tastiera collegata, che non ha i tasti
+F, la manetta è su `=` / `-` e i flap su `[` / `]`. Menu, missioni, aiuto e console si adattano a verticale e
 orizzontale, con pulsanti di almeno 44 px e spazi per le aree sicure del dispositivo.
 Quando il browser passa in secondo piano il volo viene messo in pausa; i comandi momentanei
 si rilasciano anche in caso di gesto interrotto o rotazione dello schermo.
@@ -123,7 +130,8 @@ SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/ npm run smoke:mobile
 ```
 
 La prova automatica usa Chromium con emulazione touch e tre dita simultanee; verifica layout
-da 320 × 568 a 768 × 1024, incluso 844 × 390 orizzontale. Non sostituisce una misura delle
+da 320 × 568 a 768 × 1024, incluso 844 × 390 orizzontale, e un iPad emulato (user agent iPadOS,
+820 × 1180 e 1180 × 820). Non sostituisce una misura delle
 prestazioni su hardware Android/iOS reale. Il workflow Pages esegue sia la prova desktop sia
 quella mobile prima del deploy. Il bundle web include solo i moduli three.js effettivamente usati.
 

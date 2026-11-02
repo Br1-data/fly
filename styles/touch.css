@@ -75,3 +75,20 @@
   .touch-throttle { height: 106px; }
   .touch-flight-left, .touch-flight-right { gap: 6px; }
 }
+
+/* Tablets: larger stick and throttle travel for finer control, bigger buttons. */
+.tablet-device .touch-stick { width: 188px; height: 188px; }
+.tablet-device .touch-stick-thumb { width: 58px; height: 58px; left: calc(50% - 29px); top: calc(50% - 29px); }
+.tablet-device .touch-stick-label { top: 12px; font-size: 11px; }
+.tablet-device .touch-flight-left, .tablet-device .touch-flight-right { gap: 10px; }
+.tablet-device .touch-flight-left { left: max(18px, env(safe-area-inset-left)); }
+.tablet-device .touch-flight-right { right: max(18px, env(safe-area-inset-right)); grid-template-columns: 62px 134px; }
+.tablet-device .touch-actions { grid-template-columns: repeat(2, 63px); gap: 8px; }
+.tablet-device .touch-controls .touch-button { min-height: 58px; font-size: 13px; border-radius: 12px; }
+.tablet-device .touch-controls .touch-brake { min-height: 62px; font-size: 14px; }
+.tablet-device .touch-rudder { gap: 8px; }
+.tablet-device .touch-rudder .touch-button { min-width: 88px; }
+.tablet-device .touch-throttle { width: 60px; height: 190px; border-radius: 14px; }
+.tablet-device .touch-throttle-thumb { height: 8px; margin-bottom: -4px; }
+.tablet-device .touch-power-value { font-size: 14px; }
+.tablet-device .touch-power-label { font-size: 11px; }

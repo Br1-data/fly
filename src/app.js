@@ -20,7 +20,7 @@ import { MapOverlay } from './ui/map.js';
 import { ChecklistOverlay } from './ui/checklist.js';
 import { HelpOverlay } from './ui/help.js';
 import { TouchControls } from './input/touch-controls.js';
-import { isTouchDevice } from './core/device.js';
+import { deviceClass, isIPad, isTouchDevice } from './core/device.js';
 
 const VIEW_NAMES = { cockpit: 'Cockpit', chase: 'Esterna', orbit: 'Orbitale', tower: 'Torre di controllo', flyby: 'Passaggio' };
 const SIM_RATES = [1, 2, 4, 8];
@@ -39,6 +39,8 @@ export class App {
     this.touchMode = isTouchDevice();
     this._needsRender = true;
     document.documentElement.classList.toggle('touch-device', this.touchMode);
+    document.documentElement.classList.toggle('tablet-device', deviceClass() === 'tablet');
+    document.documentElement.classList.toggle('ios-device', isIPad() || /iPhone|iPod/.test(navigator.userAgent || ''));
     this.settings = loadSettings();
     this.state = 'boot';
     this.flightSim = new Simulation();
@@ -76,8 +78,8 @@ export class App {
     const resumeAudio = () => {
       this.audio.resume?.();
     };
-    window.addEventListener('pointerdown', resumeAudio);
-    window.addEventListener('keydown', resumeAudio);
+    // iOS unlocks Web Audio only inside some gestures: try on each of them.
+    for (const type of ['pointerdown', 'touchend', 'click', 'keydown']) window.addEventListener(type, resumeAudio, { passive: true });
 
     this.input = new deps.InputManager(this.flightSim, { onAction: (a, d) => this.onAction(a, d) });
     this.input.attach(window, this.canvas);
@@ -560,7 +562,9 @@ export class App {
   _frame(now) {
     requestAnimationFrame(this._frame);
     // The fixed-step physics receives elapsed time; drawing less often saves mobile GPU work.
-    if (this.touchMode && this.lastTime && now - this.lastTime < 1000 / 30 - 1) return;
+    // Phones (and tablets on low quality) draw at 30 fps, tablets at 60 fps.
+    const maxFps = this.renderer?.profile?.maxFps ?? Infinity;
+    if (maxFps < 200 && this.lastTime && now - this.lastTime < 1000 / maxFps - 1) return;
     const dt = clamp((now - (this.lastTime || now)) / 1000, 0, 0.1);
     this.lastTime = now;
     try {

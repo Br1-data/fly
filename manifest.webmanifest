@@ -1,0 +1,17 @@
+{
+  "name": "Cieli Aperti Flight Simulator",
+  "short_name": "Cieli Aperti",
+  "description": "Simulatore di volo: fisica 6DOF, cockpit completo, meteo e missioni.",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#0a121d",
+  "theme_color": "#0a121d",
+  "icons": [
+    { "src": "assets/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

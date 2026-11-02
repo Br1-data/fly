@@ -92,10 +92,11 @@ export const QUICK_GUIDE = [
   {
     title: 'Su smartphone e tablet',
     steps: [
-      'La grafica parte in modalità leggera sui dispositivi touch. Puoi scegliere un livello diverso da Impostazioni; il pannello compatto lascia spazio alla visuale e ai comandi.',
+      'Sugli smartphone la grafica parte in modalità leggera con il pannello compatto; su iPad e tablet in qualità media a 60 fotogrammi al secondo con il pannello completo. Se il dispositivo rallenta, la risoluzione si riduce da sola per mantenere il volo fluido; puoi cambiare livello da Impostazioni.',
+      'Su iPad: in Safari tocca Condividi e poi «Aggiungi alla schermata Home» per giocare a schermo intero, senza barre del browser. Con una tastiera collegata la manetta è su = e - e i flap su [ e ], perché la tastiera dell’iPad non ha i tasti F.',
       'Trascina la cloche circolare in basso a sinistra: verso il basso per cabrare, in alto per picchiare, lateralmente per inclinare le ali. Rilasciando il dito la cloche torna al centro.',
       'Scorri la manetta POTENZA a destra. Puoi usare contemporaneamente cloche, pedaliera e freni con dita diverse; la potenza selezionata rimane al rilascio.',
-      'Tocca FLAP per avanzare di una posizione: dopo l’ultima si torna a zero. CARRELLO compare solo sui velivoli con carrello retrattile. VISTA cambia visuale e PANNELLO regola gli strumenti.',
+      'Tocca FLAP per avanzare di una posizione: dopo l’ultima si torna a zero. CARRELLO compare solo sui velivoli con carrello retrattile. VISTA cambia visuale e PANNELLO passa da strumenti completi a compatti e nascosti.',
       'Tocca Impianti o Radio per aprire le console; la cloche touch viene sospesa mentre le consulti. Trascina il panorama con un dito per guardarti intorno. Nella mappa puoi usare due dita per lo zoom.',
       'Aiuto e Pausa sono sempre nella barra in alto. Il volo va in pausa anche quando il browser passa in secondo piano; alla ripresa tocca Riprendi.',
     ],

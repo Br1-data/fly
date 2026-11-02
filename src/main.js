@@ -17,6 +17,12 @@ function showError(err) {
   document.body.appendChild(el);
 }
 
+// iPad and iPhone: the page itself must not zoom while several fingers fly the aircraft.
+// Safari ignores user-scalable=no, but cancelling its gesture events stops page pinch-zoom.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+}
+
 window.addEventListener('error', (e) => showError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showError(e.reason));
 window.addEventListener('cieli:error', (e) => showError(e.detail));

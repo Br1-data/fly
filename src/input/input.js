@@ -13,8 +13,9 @@ const BINDINGS = [
   ['Volo', 'Manetta minima', ['F1'], 'throttle', 0],
   ['Volo', 'Manetta massima', ['F4'], 'throttle', 1],
   ['Volo', 'Flap retratti', ['F5'], 'flaps', 'up'],
-  ['Volo', 'Riduci flap', ['F6'], 'flaps', 'dec'],
-  ['Volo', 'Estendi flap', ['F7'], 'flaps', 'inc'],
+  // [ and ] also work on keyboards without function keys (iPad, compact laptops).
+  ['Volo', 'Riduci flap', ['F6', 'BracketLeft'], 'flaps', 'dec'],
+  ['Volo', 'Estendi flap', ['F7', 'BracketRight'], 'flaps', 'inc'],
   ['Volo', 'Flap completi', ['F8'], 'flaps', 'full'],
   ['Volo', 'Carrello', ['KeyG'], 'gear'],
   ['Volo', 'Freno di parcheggio', ['Ctrl+Period'], 'parkingBrake'],
@@ -62,7 +63,7 @@ const BINDINGS = [
   ['Interfaccia', 'Ripeti ATIS', ['Shift+KeyT'], '@atis-repeat'],
   ['Interfaccia', 'Aiuto e glossario', ['F12'], '@help'],
 ];
-const PRESS_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Numpad8', 'Numpad2', 'Numpad4', 'Numpad6', 'Numpad5', 'KeyQ', 'KeyE', 'Numpad0', 'NumpadEnter', 'Home', 'End', 'Numpad7', 'Numpad1', 'F2', 'F3', 'Period', 'Space', 'Comma', 'KeyX', 'ShiftLeft', 'ShiftRight']);
+const PRESS_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Numpad8', 'Numpad2', 'Numpad4', 'Numpad6', 'Numpad5', 'KeyQ', 'KeyE', 'Numpad0', 'NumpadEnter', 'Home', 'End', 'Numpad7', 'Numpad1', 'F2', 'F3', 'Minus', 'Equal', 'Period', 'Space', 'Comma', 'KeyX', 'ShiftLeft', 'ShiftRight']);
 
 export class InputManager {
   constructor(sim, { onAction = () => {} } = {}) {
@@ -275,17 +276,18 @@ export class InputManager {
     }
     if (typeof this.values.throttle === 'number') p.throttle = this.values.throttle;
     p.throttleAxis = typeof this.values.throttle === 'number';
-    if (has('F2', 'F3')) delete cockpit.throttle2;
+    const throttleUp = has('F3', 'Equal'), throttleDown = has('F2', 'Minus');
+    if (throttleUp || throttleDown) delete cockpit.throttle2;
     if (typeof this.values.throttle2 === 'number') p.throttle2 = this.values.throttle2;
     else if (Number.isFinite(cockpit.throttle2)) p.throttle2 = clamp(cockpit.throttle2, 0, 1);
     else delete p.throttle2;
     if (typeof this.values.mixture === 'number') p.mixture = this.values.mixture;
-    p.throttle = clamp(p.throttle + (Number(has('F3')) - Number(has('F2'))) * dt * 0.25, 0, 1);
+    p.throttle = clamp(p.throttle + (Number(throttleUp) - Number(throttleDown)) * dt * 0.25, 0, 1);
     p.trimRate = Number(has('Home', 'Numpad7')) - Number(has('End', 'Numpad1'));
     const braking = has('Period', 'Space');
     p.brakeL = braking || has('Comma') ? 1 : this.values.brakeL > 0 ? this.values.brakeL : consoleValue('brakeL', 0, 1);
     p.brakeR = braking || has('KeyX') ? 1 : this.values.brakeR > 0 ? this.values.brakeR : consoleValue('brakeR', 0, 1);
-    p.reverse = (has('F2') && has('ShiftLeft', 'ShiftRight')) || cockpit.reverse === true;
+    p.reverse = (throttleDown && has('ShiftLeft', 'ShiftRight')) || cockpit.reverse === true;
     const next = new Set();
     for (const pad of pads.filter((pad) => pad.mapping === 'standard')) {
       const actions = { 1: () => this.sim.command('gear'), 2: () => this.sim.command('flaps', 'inc'), 3: () => this.onAction('view-next'), 8: () => this.onAction('map'), 9: () => this.onAction('menu'), 10: () => this.sim.command('apDisconnect') };
@@ -308,16 +310,16 @@ export class InputManager {
   }
 
   getBindingsList() {
-    const label = (s) => s.replaceAll('Key', '').replace('ArrowUp', '↑').replace('ArrowDown', '↓').replace('ArrowLeft', '←').replace('ArrowRight', '→').replace('Period', '.').replace('Slash', '/').replace('Semicolon', ';');
+    const label = (s) => s.replaceAll('Key', '').replace('ArrowUp', '↑').replace('ArrowDown', '↓').replace('ArrowLeft', '←').replace('ArrowRight', '→').replace('Period', '.').replace('Slash', '/').replace('Semicolon', ';').replace('BracketLeft', '[').replace('BracketRight', ']');
     return [
       { group: 'Volo', label: 'Beccheggio / rollio', keys: ['Frecce', 'Num 8/2/4/6'] },
       { group: 'Volo', label: 'Pedaliera', keys: ['Q / E', 'Num 0 / Invio'] },
       { group: 'Volo', label: 'Centra cloche e pedaliera', keys: ['Num 5'] },
-      { group: 'Volo', label: 'Aumenta / riduci manetta', keys: ['F3 / F2'] },
+      { group: 'Volo', label: 'Aumenta / riduci manetta', keys: ['F3 / F2', '= / - (tastiere senza tasti F)'] },
       { group: 'Volo', label: 'Trim a cabrare / picchiare', keys: ['Home / End', 'Num 7 / Num 1'] },
       { group: 'Volo', label: 'Freni ruote', keys: ['.', 'Spazio'] },
       { group: 'Volo', label: 'Freni differenziali sinistro / destro', keys: [', / X'] },
-      { group: 'Volo', label: 'Inversori di spinta', keys: ['Shift+F2 (tieni premuto)'] },
+      { group: 'Volo', label: 'Inversori di spinta', keys: ['Shift+F2 o Shift+- (tieni premuto)'] },
       ...BINDINGS.map(([group, title, keys]) => ({ group, label: title, keys: keys.map(label) })),
       { group: 'Mouse', label: 'Guardarsi intorno', keys: ['Tasto destro + trascina'] },
       { group: 'Mouse', label: 'Zoom', keys: ['Rotella sulla vista 3D'] },

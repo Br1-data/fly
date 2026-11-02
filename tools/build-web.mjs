@@ -10,7 +10,7 @@ const three = JSON.parse(await readFile(path.join(root, 'node_modules/three/pack
 if (three.version !== pkg.dependencies.three) throw new Error('Run npm ci before building: three.js version differs from package.json.');
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
-for (const entry of ['index.html', 'src', 'styles', 'assets']) {
+for (const entry of ['index.html', 'manifest.webmanifest', 'src', 'styles', 'assets']) {
   await cp(path.join(root, entry), path.join(output, entry), { recursive: true });
 }
 // Ship the WebGL runtime, the geometry helper and the lens flare used by the renderer. WebGPU

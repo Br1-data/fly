@@ -13,25 +13,49 @@ import { getFlareTextures } from './textures.js';
 import { airportLayouts, LAKES } from '../world/world-data.js';
 import { getTerrain } from '../world/terrain-height.js';
 import { clamp, DEG, hash2, smoothstep } from '../core/math.js';
-import { isTouchDevice } from '../core/device.js';
+import { deviceClass } from '../core/device.js';
 
 const VIEWS = ['cockpit', 'chase', 'orbit', 'tower', 'flyby'];
 const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // Fixed device budgets keep drawing cost predictable without changing saved quality.
-// Desktop medium/high retain their existing detail and resolution limits.
-export function getRenderProfile(quality = 'medium', touch = false) {
+// Desktop medium/high retain their existing detail and resolution limits. `device` is
+// 'desktop', 'phone' or 'tablet' (a boolean keeps the old meaning: true = phone).
+export function getRenderProfile(quality = 'medium', device = 'desktop') {
   const level = ['low', 'medium', 'high'].includes(quality) ? quality : 'medium';
-  return {
+  const kind = device === true ? 'phone' : ['phone', 'tablet'].includes(device) ? device : 'desktop';
+  const rich = level !== 'low';
+  const common = {
     quality: level,
-    antialias: !touch && level !== 'low',
-    pixelRatioMax: touch || level === 'low' ? 1 : level === 'high' ? 2 : 1.5,
-    maxBufferPixels: touch ? (level === 'low' ? 1_000_000 : level === 'high' ? 2_000_000 : 1_500_000) : level === 'low' ? 1_500_000 : Infinity,
+    device: kind,
     cloudCount: level === 'low' ? 40 : level === 'high' ? 240 : 180,
     rainCount: level === 'low' ? 100 : 500,
-    shadows: !touch && level !== 'low',
     shadowMapSize: level === 'high' ? 2048 : 1024,
-    landingLight: !touch && level !== 'low',
+  };
+  if (kind === 'tablet') {
+    // iPad-class GPUs resolve MSAA on chip at almost no cost and have the fill rate for a
+    // sharper image and 60 fps; dynamic resolution protects older models.
+    return {
+      ...common,
+      antialias: rich,
+      pixelRatioMax: level === 'low' ? 1 : level === 'high' ? 2 : 1.5,
+      maxBufferPixels: level === 'low' ? 1_500_000 : level === 'high' ? 5_000_000 : 3_200_000,
+      shadows: rich,
+      landingLight: rich,
+      maxFps: rich ? 60 : 30,
+      dynamicResolution: true,
+    };
+  }
+  const touch = kind === 'phone';
+  return {
+    ...common,
+    antialias: !touch && rich,
+    pixelRatioMax: touch || level === 'low' ? 1 : level === 'high' ? 2 : 1.5,
+    maxBufferPixels: touch ? (level === 'low' ? 1_000_000 : level === 'high' ? 2_000_000 : 1_500_000) : level === 'low' ? 1_500_000 : Infinity,
+    shadows: !touch && rich,
+    landingLight: !touch && rich,
+    maxFps: touch ? 30 : Infinity,
+    dynamicResolution: touch,
   };
 }
 
@@ -45,8 +69,9 @@ export function getRenderPixelRatio(profile, width, height, devicePixelRatio = 1
 export class SceneRenderer {
   constructor(canvas, { quality = 'medium' } = {}) {
     this.canvas = canvas;
-    this.touch = isTouchDevice();
-    this.profile = getRenderProfile(quality, this.touch);
+    this.device = deviceClass();
+    this.touch = this.device !== 'desktop';
+    this.profile = getRenderProfile(quality, this.device);
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x92bed4);
     this.scene.fog = new THREE.FogExp2(0x92bed4, 0.000035);
@@ -84,6 +109,10 @@ export class SceneRenderer {
     this.elapsed = 0;
     this.envState = null;
     this.envTimer = 0;
+    // Dynamic resolution (touch devices): fraction of the budgeted pixel ratio in use.
+    this.resolutionScale = 1;
+    this.dynamicResolution = true;
+    this._frames = { last: 0, ema: 0, changed: 0, good: 0 };
   }
 
   async init(onProgress = () => {}) {
@@ -155,7 +184,7 @@ export class SceneRenderer {
 
   setQuality(quality) {
     const before = this.profile;
-    this.profile = getRenderProfile(quality, this.touch);
+    this.profile = getRenderProfile(quality, this.device);
     this.quality = this.profile.quality;
     if (this.rain) this.rain.geometry.setDrawRange(0, this.profile.rainCount * 2);
     this.terrain.setQuality(this.quality);
@@ -181,8 +210,8 @@ export class SceneRenderer {
   resize(width, height) {
     this.width = Math.max(1, width);
     this.height = Math.max(1, height);
-    const ratio = getRenderPixelRatio(this.profile, this.width, this.height, window.devicePixelRatio || 1);
-    this.webgl.setPixelRatio(ratio);
+    this.baseRatio = getRenderPixelRatio(this.profile, this.width, this.height, window.devicePixelRatio || 1);
+    this.webgl.setPixelRatio(this.baseRatio * (this.profile.dynamicResolution ? this.resolutionScale : 1));
     this.webgl.setSize(this.width, this.height, false);
     this.camera.aspect = this.width / this.height;
     this.updateProjection();
@@ -249,15 +278,13 @@ export class SceneRenderer {
   async warmup(sim, onProgress = () => {}) {
     const token = ++this._warmupToken;
     this.terrain.plan(sim.fm.pos.x, sim.fm.pos.y);
-    const total = Math.max(1, this.terrain.queue.length);
-    let built = 0;
-    while (this.terrain.queue.length && token === this._warmupToken) {
+    const total = Math.max(1, this.terrain.busy);
+    // During loading the worker and this thread build tiles side by side.
+    while (this.terrain.busy && token === this._warmupToken) {
       const start = performance.now();
-      do {
-        this.terrain.buildOne();
-        built++;
-      } while (this.terrain.queue.length && performance.now() - start < 18);
-      onProgress(Math.min(1, built / total));
+      this.terrain.stream(3);
+      while (this.terrain.queue.length && performance.now() - start < 18) this.terrain.buildOne();
+      onProgress(Math.min(1, 1 - this.terrain.busy / total));
       await nextFrame();
     }
     if (token !== this._warmupToken) return;
@@ -326,8 +353,8 @@ export class SceneRenderer {
       light.mesh.visible = !!fm.systems.lights[control] && (!strobe || this.elapsed % 1 < 0.12) && (control !== 'beacon' || this.elapsed % 1.2 < 0.22);
     }
     this.terrain.plan(fm.pos.x, fm.pos.y);
-    // Streaming work is bounded to one tile each frame; initial loading happens in warmup.
-    if (this.terrain.queue.length) this.terrain.buildOne();
+    // Streaming runs in a worker (or one tile per frame without one); loading uses warmup.
+    this.terrain.stream();
     this.updateCamera(sim);
     this.updateEnvironment(sim, dt);
   }
@@ -515,6 +542,36 @@ export class SceneRenderer {
 
   render() {
     this.webgl.render(this.scene, this.camera);
+    this.adaptResolution(performance.now());
+  }
+
+  /**
+   * Keeps the frame rate on tablets and phones by trading resolution: when frames take
+   * clearly longer than the target the drawing buffer shrinks in 12 % steps (down to 60 % of
+   * the budget); after a few seconds of comfortable frames it grows back. Pauses, loading
+   * and background tabs (gaps over 250 ms) are ignored.
+   */
+  adaptResolution(now) {
+    const f = this._frames;
+    const interval = now - f.last;
+    f.last = now;
+    if (!this.profile.dynamicResolution || !this.dynamicResolution || !(interval > 0) || interval > 250) return;
+    f.ema = f.ema ? f.ema + (interval - f.ema) * 0.1 : interval;
+    const target = 1000 / Math.min(this.profile.maxFps, 60);
+    if (now - f.changed < 1500) return;
+    let scale = this.resolutionScale;
+    if (f.ema > target * 1.22) {
+      scale = Math.max(0.6, scale * 0.88);
+      f.good = 0;
+    } else if (f.ema < target * 1.06) {
+      f.good += interval;
+      if (f.good > 3000) { scale = Math.min(1, scale * 1.1); f.good = 0; }
+    } else f.good = 0;
+    if (Math.abs(scale - this.resolutionScale) < 1e-3) return;
+    this.resolutionScale = scale;
+    f.changed = now;
+    this.webgl.setPixelRatio(this.baseRatio * scale);
+    this.webgl.setSize(this.width, this.height, false);
   }
 
   getStats() {

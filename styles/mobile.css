@@ -141,3 +141,27 @@ button, select, input[type='range'] { touch-action: manipulation; }
   .help-overlay .help-command-row { grid-template-columns: 1fr; gap: 5px; }
   .help-overlay .help-command-row dd { justify-content: flex-start; }
 }
+
+/* Touch devices: no text selection, long-press callouts or grey tap flashes in the game UI;
+   the page itself never zooms (pinch is cancelled in main.js, double-tap here). */
+.touch-device body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: pan-x pan-y;
+}
+.touch-device input, .touch-device textarea { -webkit-user-select: text; user-select: text; }
+
+/* iPad and other tablets: the full instrument panel, taller in portrait for larger gauges. */
+@media (pointer: coarse) and (orientation: portrait) and (min-width: 600px) and (min-height: 900px) {
+  .tablet-device .ca-shell:not(.ca-mini) { --ca-bottom: 434px; }
+  .tablet-device .ca-shell:not(.ca-mini) .ca-body { height: 256px; }
+}
+@media (pointer: coarse) and (orientation: landscape) and (min-height: 960px) {
+  .tablet-device .ca-shell:not(.ca-mini) { --ca-bottom: 354px; }
+  .tablet-device .ca-shell:not(.ca-mini) .ca-body { height: 176px; }
+}
+.tablet-device .ca-shell .ca-ap-strip .ca-knob { min-width: 160px; }
+.tablet-device .hud-strip .hud-cell:nth-child(n+6) { display: flex; }
+.tablet-device .hud-mission, .tablet-device body[data-state='flight'].cockpit-view .hud-mission { width: min(340px, calc(100vw - 16px)); }

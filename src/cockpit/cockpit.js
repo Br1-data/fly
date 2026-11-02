@@ -2,7 +2,7 @@
 import { h } from '../ui/dom.js';
 import { clamp } from '../core/math.js';
 import { AIRPORTS } from '../world/world-data.js';
-import { isTouchDevice } from '../core/device.js';
+import { deviceClass } from '../core/device.js';
 import { drawGaPanel, drawGlassPanel } from './gauges.js';
 
 const CONSOLE_KEY = 'cieli-aperti.cockpit-consoles';
@@ -20,8 +20,9 @@ const time = (v) => `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(Mat
 export class Cockpit {
   constructor(root, sim) {
     this.root = root; this.sim = sim;
-    this.touch = isTouchDevice();
-    this.mode = this.touch && (window.innerWidth <= 1100 || window.innerHeight <= 700) ? 'mini' : 'full';
+    this.device = deviceClass();
+    this.touch = this.device !== 'desktop';
+    this.mode = this.compactTouch(window.innerWidth, window.innerHeight) ? 'mini' : 'full';
     this.view = 'orbit'; this.night = 0; this.hudVisible = true;
     this._modeChosen = false; this._nextUI = 0; this._nextGauge = 0;
     this.switches = []; this.readouts = [];
@@ -88,6 +89,16 @@ export class Cockpit {
     this.shell.addEventListener('change', (e) => {
       if (e.target.dataset?.pointerFocus) setTimeout(viewFocus, 0);
     }, true);
+  }
+
+  /**
+   * Touch screens where the full panel would crowd the view start with the compact strip:
+   * every phone layout, and tablets only when the window is very short (split view).
+   */
+  compactTouch(width, height) {
+    if (!this.touch) return false;
+    if (this.device === 'tablet') return width < 600 || height <= 700;
+    return width <= 1100 || height <= 700;
   }
 
   get panelFraction() { return this.view === 'cockpit' && this.mode !== 'hidden' ? this.el.getBoundingClientRect().height / Math.max(1, this.height) : 0; }
@@ -354,6 +365,7 @@ export class Cockpit {
     // The separate touch PANNELLO button can always restore hidden instruments.
     // A full-height pedestal leaves no room for the flight pads in landscape.
     if (this.touch && this.height <= 500) this.setMode(this.mode === 'mini' ? 'hidden' : 'mini');
+    else if (this.device === 'tablet') this.setMode({ full: 'mini', mini: 'hidden', hidden: 'full' }[this.mode] || 'full');
     else if (this.touch) this.setMode(this.mode === 'mini' ? 'full' : 'mini');
     else this.setMode(['full','mini','hidden'][(['full','mini','hidden'].indexOf(this.mode)+1)%3]);
   }
@@ -377,8 +389,11 @@ export class Cockpit {
     if (this.touch && height <= 500 && this.mode === 'full') {
       this.mode = 'mini'; this.consoles = { left: false, right: false };
     }
-    if (this.touch && !this._modeChosen && (width <= 1100 || height <= 700)) {
+    if (this.touch && !this._modeChosen && this.compactTouch(width, height)) {
       this.mode = 'mini'; this.consoles = { left: false, right: false };
+    } else if (this.device === 'tablet' && !this._modeChosen && this.mode === 'mini') {
+      // Leaving split view or rotating back gives the tablet its full panel again.
+      this.mode = 'full';
     } else if (this.shell && compact && !wasCompact) this.consoles = { left: false, right: false };
     this._nextUI = 0; this._nextGauge = 0;
     if (this.shell) this._visibility();

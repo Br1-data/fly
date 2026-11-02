@@ -157,6 +157,46 @@ try {
   check('Guida: i gesti touch sono documentati', await page.locator('.help-command-row').count() > 0);
   await page.getByRole('button', { name: /Chiudi l’aiuto/ }).tap();
   check('Nessun errore browser o risorsa mancante', errors.length === 0 && await page.locator('#fatal-error').count() === 0);
+
+  // iPad (iPadOS Safari reports a Mac user agent): richer defaults and the full panel.
+  const ipadUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+  const tablet = await browser.newContext({ viewport: { width: 820, height: 1180 }, screen: { width: 820, height: 1180 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, userAgent: ipadUA });
+  const ipad = await tablet.newPage();
+  ipad.setDefaultTimeout(30000);
+  ipad.on('pageerror', (e) => errors.push(`iPad: ${e.message}`));
+  ipad.on('response', (r) => { if (r.status() >= 400) errors.push(`iPad HTTP ${r.status()} ${new URL(r.url()).pathname}`); });
+  await ipad.addInitScript(() => Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5 }));
+  await ipad.goto(`http://127.0.0.1:${server.address().port}${basePath}`);
+  await ipad.waitForFunction(() => window.__cieli?.state === 'menu', null, { timeout: 90000 });
+  check('iPad: riconosciuto come tablet, qualità media, 60 fps e antialiasing', await ipad.evaluate(() => {
+    const r = window.__cieli.renderer;
+    return document.documentElement.classList.contains('tablet-device') && window.__cieli.settings.quality === 'medium' && r.profile.maxFps === 60 && r.profile.antialias && r.webgl.getPixelRatio() > 1;
+  }));
+  check('iPad: app installabile a schermo intero', await ipad.evaluate(async () => {
+    const link = document.querySelector('link[rel=manifest]');
+    const manifest = await (await fetch(link.href)).json();
+    const icon = await fetch(document.querySelector('link[rel=apple-touch-icon]').href);
+    return manifest.display === 'fullscreen' && icon.ok && document.querySelector('meta[name=apple-mobile-web-app-capable]')?.content === 'yes';
+  }));
+  await ipad.evaluate(async () => { await window.__cieli.startFlight({ aircraft: 'trainer', start: { type: 'runway', airport: 'XAQU', runway: '07' }, time: 11 }, null); });
+  await ipad.waitForFunction(() => window.__cieli.state === 'flight', null, { timeout: 120000 });
+  await ipad.locator('.touch-controls:not([hidden])').waitFor();
+  check('iPad verticale: pannello strumenti completo e terreno ricco', await ipad.evaluate(() => {
+    const a = window.__cieli;
+    return a.cockpit.mode === 'full' && document.querySelector('.ca-body').getBoundingClientRect().height >= 240 && a.renderer.terrain.tiles.size === 121;
+  }));
+  const tabletRects = await ipad.locator('.touch-stick, .touch-throttle, .touch-controls button:not([hidden])').evaluateAll((els) => els.filter((el) => el.getClientRects().length).map((el) => {
+    const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, panel: document.querySelector('.ca-panel').getBoundingClientRect().top };
+  }));
+  check('iPad: comandi touch grandi, sopra il pannello e dentro lo schermo', tabletRects.length > 0 && tabletRects.every((r) => r.x >= 0 && r.x + r.w <= 821 && r.y + r.h <= r.panel + 1 && r.w >= 56 && r.h >= 56));
+  await ipad.screenshot({ path: path.join(output, 'ipad-portrait.png') });
+  await ipad.setViewportSize({ width: 1180, height: 820 });
+  await ipad.evaluate(() => window.dispatchEvent(new Event('orientationchange')));
+  await ipad.waitForFunction(() => window.__cieli.cockpit.width === 1180);
+  check('iPad orizzontale: pannello completo e nessun overflow', await ipad.evaluate(() => window.__cieli.cockpit.mode === 'full' && document.documentElement.scrollWidth <= innerWidth + 1));
+  await ipad.screenshot({ path: path.join(output, 'ipad-landscape.png') });
+  await tablet.close();
+  check('iPad: nessun errore', errors.length === 0);
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ success: true, checks, errors }, null, 2));
   console.log(`Mobile smoke completato: ${checks.length} verifiche.`);
 } catch (error) {

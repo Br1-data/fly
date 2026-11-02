@@ -4,9 +4,11 @@ import { getTerrain } from '../world/terrain-height.js';
 import { AIRPORTS, NAVAIDS, CITIES, LAKES, WORLD_HALF_SIZE, runwayGeometry } from '../world/world-data.js';
 import { NM } from '../core/units.js';
 import { DEG } from '../core/math.js';
-import { isTouchDevice } from '../core/device.js';
+import { deviceClass, isTouchDevice } from '../core/device.js';
 
-const BASE_RES = isTouchDevice() ? 320 : 640;
+// Phones render a lighter map; tablets have the memory and screen for full detail.
+const PHONE = deviceClass() === 'phone';
+const BASE_RES = PHONE ? 320 : 640;
 const EXTENT = WORLD_HALF_SIZE; // metres from centre
 
 export class MapOverlay {
@@ -57,7 +59,7 @@ export class MapOverlay {
 
   _resize() {
     const r = this.canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, isTouchDevice() ? 1 : 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, PHONE ? 1 : 2);
     this.canvas.width = Math.max(10, Math.round(r.width * dpr));
     this.canvas.height = Math.max(10, Math.round(r.height * dpr));
     this.dpr = dpr;
