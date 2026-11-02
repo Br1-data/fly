@@ -218,6 +218,14 @@ function paintLivery({ width, height, z0, z1, radius, base, painter }) {
     top(zA, zB, h, fill, glass = false) { rect(zA, zB, Math.asin(h), Math.PI - Math.asin(h), fill, glass); },
     /** Everything below height ratio h (belly). */
     belly(zA, zB, h, fill) { rect(zA, zB, Math.PI - Math.asin(h), TAU + Math.asin(h), fill); },
+    /** Skin panel joints: frames around the fuselage and longitudinal seams. */
+    panels(frames, seams, colour = 'rgba(25,35,45,0.2)') {
+      c.fillStyle = colour;
+      for (const z of frames) c.fillRect(X(z), 0, 1, height);
+      for (const h of seams) {
+        for (const a of [Math.asin(h), Math.PI - Math.asin(h)]) c.fillRect(0, Y(a < 0 ? a + TAU : a), width, 1);
+      }
+    },
     /** Rectangular outline (doors) on both sides between height ratios h0 < h1. */
     outline(zA, zB, h0, h1, stroke) {
       c.strokeStyle = stroke;
@@ -292,6 +300,7 @@ function buildTrainer(group, mats) {
       p.top(-1.1, -0.55, 0.38, '#0d1a22', true); // windscreen
       p.sides(-0.5, 0.95, 0.2, 0.86, '#0d1a22', true); // cabin side windows
       p.sides(1.0, 1.55, 0.28, 0.72, '#0d1a22', true);
+      p.panels([-1.95, -1.4, -1.05, 1.62, 2.3, 3.3, 4.2], [-0.62, 0.9]);
       p.text('I-FALC', 2.9, 0.12, 30, '#173f6b');
     },
   });
@@ -361,6 +370,9 @@ function buildAirliner(group, mats) {
         p.sides(z, z + 0.25, 0.27, 0.41, '#13202a', true);
       }
       for (const [z, w] of [[-13.2, 0.85], [11.7, 0.8], [1.6, 0.6]]) p.outline(z, z + w, -0.12, 0.62, '#9aa4ab');
+      const frames = [];
+      for (let z = -16.6; z < 19.5; z += 1.55) frames.push(z);
+      p.panels(frames, [0.8, -0.55, 0.12], 'rgba(30,40,50,0.14)');
       p.text('AQUILA', -3.5, 0.6, 72, '#1b4f8c');
       p.text('I-AQLA', 15.2, 0.15, 30, '#1b4f8c', '600');
     },
@@ -410,6 +422,7 @@ function buildJet(group, mats) {
       p.sides(-3.6, 6.45, -0.06, 0.06, '#c0272f');
       p.c.fillStyle = '#0d1116';
       p.c.fillRect(p.X(-4.6), 0, p.X(-4.25) - p.X(-4.6), 128); // radome tip
+      p.panels([-3.6, -2.9, -0.1, 0.9, 2.6, 4.1, 5.4], [0.55, -0.5], 'rgba(5,10,20,0.25)');
       p.text('10', 1.6, 0.42, 34, '#f4f6f7');
     },
   });

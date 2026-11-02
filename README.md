@@ -51,7 +51,13 @@ con la quota e sfuma il paesaggio nell'orizzonte. Mare e laghi con onde animate,
 scintillio del sole e fondali visibili sotto costa. Terreno con campi coltivati e siepi, boschi,
 rocce e nevai; cumuli morbidi illuminati dal sole e strati coperti; ombra del velivolo (visibile anche
 dal cockpit). Di notte: luci di pista, avvicinamento con lampeggiatori sequenziali, PAPI, raccordi,
-città illuminate e finestre accese. Velivoli con livree, finestrini lucidi e riflessi dell'ambiente.
+città illuminate e finestre accese. Velivoli con livree, pannellature, finestrini lucidi e riflessi
+dell'ambiente; bagliore e riflessi dell'obiettivo controsole.
+
+Da vicino il terreno usa texture di materiale (erba, chiome, roccia con proiezione triplanare e
+rilievo, sabbia, neve, solchi dei campi, asfalto e cemento) miscelate per tipo di suolo. Sono generate
+in modo deterministico e senza giunzioni da `tools/make-textures.py` (Python con numpy, scipy e
+Pillow) e salvate in `assets/textures/`, quindi il gioco non richiede passaggi di build.
 
 ### Missioni
 Primo decollo, circuito di traffico, atterraggio di precisione, avaria motore, navigazione VOR, avviamento a

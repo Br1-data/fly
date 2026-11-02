@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 import { bodyToModel, quatToThree, v3ToThree, groundToThree } from './coords.js';
 import { createAircraft, disposeObject } from './aircraft.js';
 import { TerrainTiles } from './terrain.js';
@@ -8,6 +9,7 @@ import { WaterSurfaces } from './water.js';
 import { CloudLayer } from './clouds.js';
 import { glowUniforms } from './glow.js';
 import { sceneryUniforms } from './materials.js';
+import { getFlareTextures } from './textures.js';
 import { airportLayouts, LAKES } from '../world/world-data.js';
 import { getTerrain } from '../world/terrain-height.js';
 import { clamp, DEG, hash2, smoothstep } from '../core/math.js';
@@ -108,7 +110,9 @@ export class SceneRenderer {
     this.cities = buildCities(this.scene);
     onProgress(0.6, 'Preparazione delle nubi…');
     this.cloudLayer = new CloudLayer(this.scene, this.profile.cloudCount);
+    this.cloudLayer.setDetail(this.profile.quality !== 'low');
     this.createRain();
+    this.createLensflare();
     this.pmrem = new THREE.PMREMGenerator(this.webgl);
     await nextFrame();
     onProgress(1, 'Mondo pronto');
@@ -132,6 +136,23 @@ export class SceneRenderer {
     this.scene.add(this.rain);
   }
 
+  /** Sun glare and aperture ghosts (medium/high), occluded by terrain and aircraft. */
+  createLensflare() {
+    const { glare, ghost } = getFlareTextures();
+    this.lensflare = new Lensflare();
+    this.flareElements = [
+      [glare, 460, 0, 0xfff0d6], [ghost, 60, 0.32, 0x34445a], [ghost, 110, 0.52, 0x4a412c],
+      [ghost, 42, 0.68, 0x2f4a38], [ghost, 150, 0.95, 0x2c3244],
+    ].map(([texture, size, distance, colour]) => {
+      const element = new LensflareElement(texture, size, distance, new THREE.Color(colour));
+      this.lensflare.addElement(element);
+      return { element, base: element.color.clone() };
+    });
+    this.lensflare.renderOrder = 50;
+    this.lensflare.visible = false;
+    this.scene.add(this.lensflare);
+  }
+
   setQuality(quality) {
     const before = this.profile;
     this.profile = getRenderProfile(quality, this.touch);
@@ -139,6 +160,7 @@ export class SceneRenderer {
     if (this.rain) this.rain.geometry.setDrawRange(0, this.profile.rainCount * 2);
     this.terrain.setQuality(this.quality);
     this.cloudLayer?.setBudget(this.profile.cloudCount);
+    this.cloudLayer?.setDetail(this.profile.quality !== 'low');
     if (before && before.shadows !== this.profile.shadows) {
       this.webgl.shadowMap.enabled = this.profile.shadows;
       this.terrain.setShadows(this.profile.shadows);
@@ -397,6 +419,13 @@ export class SceneRenderer {
     const layer = sim.atm.weather.clouds?.find((c) => c.coverage > 0) || null;
     this.cloudLayer.update(layer, camera, dt, { dir: sky.lightDir, color: sky.lightColor, intensity: this.sun.intensity / 3.1, ambient: lightAmbient });
     this.updateEnvironmentMap(sim.timeOfDay, overcast + cloudDensity);
+    const flare = this.profile.quality === 'low' ? 0
+      : smoothstep(-0.02, 0.08, sky.sunDir.y) * (1 - overcast) * (1 - cloudDensity) * (1 - mist);
+    this.lensflare.visible = flare > 0.02;
+    if (this.lensflare.visible) {
+      this.lensflare.position.copy(camera.position).addScaledVector(sky.sunDir, 90000);
+      for (const { element, base } of this.flareElements) element.color.copy(base).multiplyScalar(flare);
+    }
     this.rain.visible = sim.atm.precip > 0.05;
     if (this.rain.visible) {
       this.rain.position.copy(camera.position);

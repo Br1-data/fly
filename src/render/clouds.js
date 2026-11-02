@@ -18,6 +18,8 @@ varying vec2 vUv;
 varying float vShade;
 varying float vAlpha;
 varying float vSunFacing;
+varying vec2 vRot;
+varying vec3 vLightView;
 ${FOG_PARS_VERTEX}
 void main() {
   vec4 world = modelMatrix * vec4(aCenter, 1.0);
@@ -34,6 +36,8 @@ void main() {
   float dist = length(mvCenter.xyz);
   vAlpha = smoothstep(size * 0.2, size * 1.2, dist);
   vSunFacing = pow(max(dot(normalize(world.xyz - cameraPosition), uLightDir), 0.0), 5.0);
+  vRot = vec2(cr, sr);
+  vLightView = normalize((viewMatrix * vec4(uLightDir, 0.0)).xyz);
   ${FOG_VERTEX}
 }
 `;
@@ -48,12 +52,27 @@ varying vec2 vUv;
 varying float vShade;
 varying float vAlpha;
 varying float vSunFacing;
+varying vec2 vRot;
+varying vec3 vLightView;
 ${FOG_PARS_FRAGMENT}
 void main() {
   vec4 t = texture2D(uMap, vUv);
   float a = t.a * vAlpha * uOpacity;
   if (a < 0.004) discard;
-  vec3 col = mix(uShadow, uLit, vShade * t.g);
+  float shade = vShade;
+  #ifdef CLOUD_HQ
+    // Treat the puff density as a height field: its gradient gives a per-pixel normal, so
+    // every puff is lit from the sun's side and shaded on the far side like a solid volume.
+    const float o = 2.0 / 256.0;
+    float ax = texture2D(uMap, vUv + vec2(o, 0.0)).a - texture2D(uMap, vUv - vec2(o, 0.0)).a;
+    float ay = texture2D(uMap, vUv + vec2(0.0, o)).a - texture2D(uMap, vUv - vec2(0.0, o)).a;
+    vec2 g = vec2(vRot.x * ax - vRot.y * ay, vRot.y * ax + vRot.x * ay);
+    vec3 n = normalize(vec3(-g * 2.2, 0.35 + t.a));
+    float lambert = clamp(dot(n, vLightView) * 0.5 + 0.5, 0.0, 1.0);
+    shade = clamp(vShade * 0.6 + lambert * 0.5, 0.0, 1.0);
+  #endif
+  vec3 col = mix(uShadow, uLit, shade * t.g);
+  col += uSilver * vSunFacing * 0.18;
   col += uSilver * vSunFacing * (1.0 - t.a) * 1.6;
   gl_FragColor = vec4(col, a);
   #include <colorspace_fragment>
@@ -161,6 +180,14 @@ export class CloudLayer {
   setBudget(maxClusters) {
     this.maxClusters = maxClusters;
     this.key = '';
+  }
+
+  /** Per-pixel puff lighting (four extra texture reads) on medium/high quality. */
+  setDetail(high) {
+    const defines = high ? { CLOUD_HQ: '' } : {};
+    if (('CLOUD_HQ' in this.material.defines) === high) return;
+    this.material.defines = defines;
+    this.material.needsUpdate = true;
   }
 
   /** Lay out the puffs of the first visible layer around the camera (world-anchored cells). */

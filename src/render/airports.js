@@ -11,6 +11,7 @@ import { getTireMarkTexture } from './textures.js';
 
 const WHITE_PAINT = 0xe9e6d6;
 const YELLOW_PAINT = 0xd8aa33;
+const APRON = 0x8a8c88;
 
 /** Shared glow materials so the renderer can dim every airport light at once. */
 function lightMaterials() {
@@ -34,7 +35,7 @@ export function buildAirports(scene) {
   const surfaceMaterial = (color, kind) => {
     const key = `${kind}:${color}`;
     if (!materials.has(key)) {
-      materials.set(key, kind === 'paint' ? markingMaterial(color) : kind === 'paved' ? pavedMaterial(color) : kind === 'building'
+      materials.set(key, kind === 'paint' ? markingMaterial(color) : kind === 'paved' ? pavedMaterial(color, color === APRON ? 'concrete' : 'asphalt') : kind === 'building'
         ? buildingMaterial({ color, floor: 4.2, bay: 3.2, glass: 0.75 })
         : applyAtmosphere(new THREE.MeshLambertMaterial({ color }), 'airport-solid'));
     }
@@ -62,7 +63,7 @@ export function buildAirports(scene) {
     const grassStrip = rw.surface === 'grass';
     for (const s of layout.surfaces) {
       const grass = s.surface === 'grass';
-      const color = grass ? 0x5f7d45 : s.kind === 'apron' ? 0x8a8c88 : s.kind === 'runway' ? 0x3c3f41 : 0x4b4e4f;
+      const color = grass ? 0x5f7d45 : s.kind === 'apron' ? APRON : s.kind === 'runway' ? 0x3c3f41 : 0x4b4e4f;
       rect(s.n, s.e, s.heading, s.length, s.width, 0.15 + (s.kind === 'runway' ? 0.03 : 0), color, grass ? 'solid' : 'paved');
     }
     const along = (distance, across = 0) => ({ n: g.cn + g.dn * distance - g.de * across, e: g.ce + g.de * distance + g.dn * across });

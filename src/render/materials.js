@@ -2,7 +2,7 @@
 // at night. All of them use the atmospheric fog.
 import * as THREE from 'three';
 import { applyAtmosphere } from './atmosphere.js';
-import { getDetailTexture } from './textures.js';
+import { getDetailTexture, getMaterialTexture } from './textures.js';
 
 /** Night factor 0..1 shared by every emissive scenery material. */
 export const sceneryUniforms = {
@@ -18,23 +18,28 @@ sceneryWorld = modelMatrix * sceneryWorld;
 vSceneryPos = sceneryWorld.xyz;
 `;
 
-/** Lambert material with world-space asphalt/concrete grain. */
-export function pavedMaterial(color, key = 'paved') {
+/** Lambert material with world-space asphalt/concrete texture and large-scale wear. */
+export function pavedMaterial(color, texture = 'asphalt') {
   const detail = getDetailTexture();
   const material = new THREE.MeshLambertMaterial({ color, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-  return applyAtmosphere(material, key, (shader) => {
+  return applyAtmosphere(material, 'paved', (shader) => {
     shader.uniforms.uDetail = { value: detail };
+    shader.uniforms.tPaved = getMaterialTexture(texture);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vSceneryPos;')
       .replace('#include <project_vertex>', `#include <project_vertex>\n${WORLD_POS_VERTEX}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D uDetail;\nvarying vec3 vSceneryPos;')
+      .replace('#include <common>', '#include <common>\nuniform sampler2D uDetail;\nuniform sampler2D tPaved;\nvarying vec3 vSceneryPos;')
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec2 pavedUv = vSceneryPos.xz;
         float pavedA = texture2D(uDetail, pavedUv / 7.0).r;
         float pavedB = texture2D(uDetail, pavedUv / 53.0).g;
         float pavedC = texture2D(uDetail, pavedUv / 290.0).a;
-        diffuseColor.rgb *= (0.92 + 0.12 * pavedA) * (0.95 + 0.1 * pavedB) * (0.9 + 0.16 * pavedC);`);
+        diffuseColor.rgb *= (0.96 + 0.06 * pavedA) * (0.95 + 0.1 * pavedB) * (0.9 + 0.16 * pavedC);
+        vec3 pavedMean = max(textureLod(tPaved, vec2(0.5), 12.0).rgb, vec3(0.03));
+        vec2 pavedRot = vec2(0.8 * pavedUv.x - 0.6 * pavedUv.y, 0.6 * pavedUv.x + 0.8 * pavedUv.y);
+        vec3 pavedTex = (texture2D(tPaved, pavedUv / 9.0).rgb * 0.6 + texture2D(tPaved, pavedRot / 71.0).rgb * 0.4) / pavedMean;
+        diffuseColor.rgb *= mix(vec3(1.0), pavedTex, 0.8);`);
   });
 }
 
