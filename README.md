@@ -45,6 +45,14 @@ foreste, laghi, catene montuose fino a 2.400 m con valli percorribili, città, *
 internazionale di 3.200 m con ILS a una pista di montagna di 800 m e una pista in erba), luci di pista,
 sentieri di avvicinamento luminosi e **PAPI** funzionanti.
 
+### Grafica
+Cielo dinamico con sole, luna e stelle, colori dell'alba e del tramonto e foschia che si dirada
+con la quota e sfuma il paesaggio nell'orizzonte. Mare e laghi con onde animate, riflessi del cielo,
+scintillio del sole e fondali visibili sotto costa. Terreno con campi coltivati e siepi, boschi,
+rocce e nevai; cumuli morbidi illuminati dal sole e strati coperti; ombra del velivolo (visibile anche
+dal cockpit). Di notte: luci di pista, avvicinamento con lampeggiatori sequenziali, PAPI, raccordi,
+città illuminate e finestre accese. Velivoli con livree, finestrini lucidi e riflessi dell'ambiente.
+
 ### Missioni
 Primo decollo, circuito di traffico, atterraggio di precisione, avaria motore, navigazione VOR, avviamento a
 freddo, atterraggio in montagna, ILS nella nebbia, volo di linea, vento al traverso, percorso ad anelli,

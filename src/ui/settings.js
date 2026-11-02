@@ -42,7 +42,7 @@ export class SettingsScreen {
                 },
               ),
             ),
-            h('p.muted', 'Bassa: PC portatili e grafica integrata. Alta: schede video dedicate (ombre e vegetazione più dense, terreno più dettagliato).'),
+            h('p.muted', 'Bassa: smartphone, portatili e grafica integrata (senza ombre, meno nubi e alberi). Media e Alta: ombra del velivolo, faro di atterraggio, nubi e boschi più densi; Alta aggiunge orizzonte più lontano e ombre più nitide.'),
             h(
               'div.field',
               h('span.field-label', 'Vista iniziale'),

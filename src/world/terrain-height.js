@@ -275,7 +275,9 @@ class TerrainModel {
   cityFactor(n, e) {
     let best = 0;
     for (const c of CITIES) {
-      const d = Math.hypot(n - c.n, e - c.e) / c.radius + 0.25 * noiseB.noise(n / 900, e / 900);
+      const raw = Math.hypot(n - c.n, e - c.e) / c.radius;
+      if (raw > 1.25) continue; // |noise term| <= 0.25: no town possible here
+      const d = raw + 0.25 * noiseB.noise(n / 900, e / 900);
       if (d < 1) best = Math.max(best, (1 - d) * c.density);
     }
     return best;
@@ -295,6 +297,11 @@ class TerrainModel {
     let hsh = (ix * 73856093) ^ (iy * 19349663);
     hsh = Math.imul(hsh ^ (hsh >>> 13), 1274126177);
     return ((hsh ^ (hsh >>> 16)) >>> 0) / 4294967296;
+  }
+
+  /** Orientation (rad) of the agricultural field grid, varying slowly across the region. */
+  fieldAngle(n, e) {
+    return noiseA.noise(n / 30000, e / 30000) * 0.8;
   }
 
   noiseDetail(n, e, scale) {
