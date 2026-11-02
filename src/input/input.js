@@ -5,7 +5,8 @@ const BIPOLAR = new Set(['roll', 'pitch', 'yaw']);
 const clamp = (v, lo = -1, hi = 1) => Math.max(lo, Math.min(hi, v));
 const defaults = () => ({ axes: Object.fromEntries(AXES.map((k) => [k, null])), deadzone: 0.05, expo: 0.3, keyboardSensitivity: 1, gamepadEnabled: true, mouseYoke: false });
 const modifiers = (e) => `${e.ctrlKey ? 'Ctrl+' : ''}${e.altKey ? 'Alt+' : ''}${e.shiftKey ? 'Shift+' : ''}${e.code}`;
-const isField = (el) => !!el && (['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) || el.isContentEditable);
+// Controls clicked with the mouse are marked by the cockpit: they do not capture flight keys.
+const isField = (el) => !!el && !el.dataset?.pointerFocus && (['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) || el.isContentEditable);
 
 // Entries power both dispatch and the help screen, keeping the displayed controls accurate.
 const BINDINGS = [
@@ -71,6 +72,8 @@ export class InputManager {
     this.keys = new Set();
     this.values = {};
     this.mouse = { roll: 0, pitch: 0 };
+    // Keyboard deflection builds up while a key is held and recentres on release.
+    this.kb = { pitch: 0, roll: 0, yaw: 0 };
     this._buttons = new Set();
     this._listeners = [];
     this.settings = defaults();
@@ -126,13 +129,25 @@ export class InputManager {
         this.onAction('look', { dx: e.clientX - x, dy: e.clientY - y });
         this._lastPointer = [e.clientX, e.clientY];
       } else if (this.settings.mouseYoke) {
+        // Neutral is the centre of the visible outside view (above the instrument panel).
         const r = canvas.getBoundingClientRect();
+        const panel = this._panelHeight();
+        const height = Math.max(120, r.height - panel);
         this.mouse.roll = clamp((e.clientX - r.left - r.width / 2) / (r.width * 0.3));
-        this.mouse.pitch = clamp((e.clientY - r.top - r.height / 2) / (r.height * 0.3));
+        this.mouse.pitch = clamp((e.clientY - r.top - height / 2) / (height * 0.35));
       }
     });
     listen(canvas, 'pointerleave', () => { if (!this._looking) this.mouse = { roll: 0, pitch: 0 }; });
     listen(canvas, 'wheel', (e) => { if (this.enabled) { e.preventDefault(); this.onAction('zoom', { delta: e.deltaY }); } }, { passive: false });
+  }
+
+  _panelHeight() {
+    const now = Date.now();
+    if (!this._panelCache || now - this._panelCache.time > 500) {
+      const value = parseFloat(globalThis.getComputedStyle?.(globalThis.document?.documentElement).getPropertyValue('--panel-h'));
+      this._panelCache = { time: now, value: Number.isFinite(value) ? value : 0 };
+    }
+    return this._panelCache.value;
   }
 
   detach() { this._listeners.forEach((remove) => remove()); this._listeners = []; this._release(); }
@@ -144,6 +159,7 @@ export class InputManager {
     this._looking = false;
     this._lookPointer = null;
     this.mouse = { roll: 0, pitch: 0 };
+    this.kb = { pitch: 0, roll: 0, yaw: 0 };
     if (this.sim?.cockpitInput) {
       for (const key of Object.keys(this.sim.cockpitInput)) {
         if (key !== 'throttle2' || resetThrottle) delete this.sim.cockpitInput[key];
@@ -157,7 +173,7 @@ export class InputManager {
 
   _keyDown(e) {
     if (!this.enabled || isField(e.target) || e.metaKey) return;
-    if (e.target?.tagName === 'BUTTON' && ['Space', 'Enter', 'NumpadEnter'].includes(e.code)) return;
+    if (e.target?.tagName === 'BUTTON' && !e.target.dataset?.pointerFocus && ['Space', 'Enter', 'NumpadEnter'].includes(e.code)) return;
     const combo = modifiers(e);
     const b = BINDINGS.find((b) => b[2].includes(combo));
     if (b) {
@@ -228,16 +244,33 @@ export class InputManager {
       roll: [['ArrowRight', 'Numpad6'], ['ArrowLeft', 'Numpad4']],
       yaw: [['KeyE', 'NumpadEnter'], ['KeyQ', 'Numpad0']],
     };
+    // Full deflection takes about half a second of holding: a tap gives a small correction.
+    const rates = { pitch: 1.6, roll: 2.0, yaw: 2.4 };
     for (const key of ['pitch', 'roll', 'yaw']) {
       const [positive, negative] = axisKeys[key];
       const keyboardActive = has('Numpad5', ...positive, ...negative);
       const mouseValue = this.settings.mouseYoke && key !== 'yaw' ? this.mouse[key] : 0;
       const gamepadValue = this.values[key] || 0;
+      const dir = Number(has(...positive)) - Number(has(...negative));
+      const sensitivity = this.settings.keyboardSensitivity;
+      const keyboardBefore = this.kb[key];
+      if (has('Numpad5')) this.kb[key] = 0;
+      else if (dir) {
+        // Reversing direction first drops most of the opposite deflection.
+        if (this.kb[key] * dir < 0) this.kb[key] *= 0.25;
+        this.kb[key] = clamp(this.kb[key] + dir * rates[key] * sensitivity * dt);
+      } else {
+        const back = 3.5 * dt;
+        this.kb[key] = Math.abs(this.kb[key]) <= back ? 0 : this.kb[key] - Math.sign(this.kb[key]) * back;
+      }
       // A centred physical controller leaves the pointer-held console available.
       let v = consoleValue(key);
       if (Math.abs(gamepadValue) > 0) v = gamepadValue;
       if (Math.abs(mouseValue) > 0) v = mouseValue;
-      if (keyboardActive) v = has('Numpad5') ? 0 : Number(has(...positive)) - Number(has(...negative));
+      if (keyboardActive || keyboardBefore !== 0) {
+        p[key] = this.kb[key];
+        continue;
+      }
       p[key] = damp(p[key] || 0, v);
     }
     if (typeof this.values.throttle === 'number') p.throttle = this.values.throttle;
@@ -289,7 +322,7 @@ export class InputManager {
       { group: 'Mouse', label: 'Guardarsi intorno', keys: ['Tasto destro + trascina'] },
       { group: 'Mouse', label: 'Zoom', keys: ['Rotella sulla vista 3D'] },
       { group: 'Mouse', label: 'Interruttori e pulsanti del cockpit', keys: ['Clic'] },
-      { group: 'Mouse', label: 'Manopole del cockpit', keys: ['Clic su − / +', 'Rotella'] },
+      { group: 'Mouse', label: 'Manopole del cockpit', keys: ['Tieni premuto − / +', 'Rotella (Maiusc: passi grandi)', 'Clic sul valore per digitarlo'] },
       { group: 'Mouse', label: 'Leve del cockpit', keys: ['Trascina cursore'] },
       { group: 'Mouse', label: 'Cloche, pedaliera e freni nelle console', keys: ['Trascina cloche', 'Tieni premuto il pulsante'] },
       { group: 'Mouse', label: 'Cloche col mouse (attiva con Y)', keys: ['Muovi il puntatore sulla vista 3D'] },

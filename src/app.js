@@ -81,6 +81,7 @@ export class App {
 
     this.input = new deps.InputManager(this.flightSim, { onAction: (a, d) => this.onAction(a, d) });
     this.input.attach(window, this.canvas);
+    document.body.classList.toggle('mouse-yoke', !!this.input.settings.mouseYoke);
     this.input.setEnabled(false);
     this.touchControls = new TouchControls(this.roots.hud, this);
     window.addEventListener('orientationchange', () => this.touchControls.reset());
@@ -461,7 +462,8 @@ export class App {
         this.renderer.zoom(data?.delta || 0);
         break;
       case 'mouse-yoke':
-        this.hud.flash(data?.enabled ? 'Cloche col mouse: ATTIVA' : 'Cloche col mouse: disattivata');
+        document.body.classList.toggle('mouse-yoke', !!data?.enabled);
+        this.hud.flash(data?.enabled ? 'Cloche col mouse: ATTIVA (Y per disattivare)' : 'Cloche col mouse: disattivata');
         break;
       case 'atis-repeat':
         if (this.lastAtisText) {

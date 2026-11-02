@@ -32,13 +32,19 @@ export class FlightHud {
     this.missionEl = h('div.hud-mission');
     this.atisEl = h('div.hud-atis');
     this.rateEl = h('div.hud-rate');
+    // Control position indicator: stick (pitch/roll), pedals (yaw) and throttle.
+    this.stickDot = h('i.hud-stick-dot');
+    this.yawMark = h('i.hud-stick-yaw');
+    this.throttleFill = h('i.hud-stick-thr');
+    this.stick = h('div.hud-stick', { 'aria-hidden': 'true' },
+      h('div.hud-stick-box', this.stickDot), h('div.hud-stick-pedals', this.yawMark), h('div.hud-stick-throttle', this.throttleFill), h('small', 'COMANDI'));
     const tool = (label, key, action, cls = '') => button([h('span', label), h('kbd', key)], action, cls);
     const toolbar = h('nav.flight-toolbar', { 'aria-label': 'Strumenti di volo e aiuto' },
       tool('Aiuto', 'F12', () => app.openHelp(), 'flight-help'),
       tool('Mappa', 'M', () => app.onAction('map')),
       tool('Checklist', 'K', () => app.onAction('checklist')),
       tool('Pausa', 'Esc', () => app.openPauseMenu()));
-    this.el = h('div.hud', toolbar, this.toasts, this.warn, this.flashEl, this.missionEl, this.atisEl, this.rateEl, this.strip);
+    this.el = h('div.hud', toolbar, this.toasts, this.warn, this.flashEl, this.missionEl, this.atisEl, this.rateEl, this.stick, this.strip);
     root.appendChild(this.el);
     this._t = 0;
     this._toastMap = new Map();
@@ -86,6 +92,22 @@ export class FlightHud {
     this._atisT = setTimeout(() => this.atisEl.classList.remove('visible'), 25000);
   }
 
+  /** Shows the control deflection while it is being used (and always with the mouse yoke). */
+  updateStick(sim, now) {
+    const p = sim.pilot;
+    const mouseYoke = !!this.app.input?.settings.mouseYoke;
+    if (mouseYoke || Math.abs(p.pitch) + Math.abs(p.roll) + Math.abs(p.yaw) > 0.02) this._stickSeen = now;
+    const show = !sim.paused && now - (this._stickSeen || -1e9) < 1800;
+    if (show !== this._stickShown) {
+      this._stickShown = show;
+      this.stick.classList.toggle('visible', show);
+    }
+    if (!show) return;
+    this.stickDot.style.transform = `translate(${(p.roll || 0) * 26}px, ${(p.pitch || 0) * 26}px)`;
+    this.yawMark.style.left = `${50 + (p.yaw || 0) * 46}%`;
+    this.throttleFill.style.height = `${Math.round((p.throttle || 0) * 100)}%`;
+  }
+
   update(dt) {
     const app = this.app;
     const sim = app.flightSim;
@@ -128,6 +150,7 @@ export class FlightHud {
       this.warn.textContent = w;
       this.warn.className = 'hud-warn' + (w ? ' visible' : '') + (w === 'PAUSA' ? ' pause' : '');
     }
+    this.updateStick(sim, now);
     const rate = sim.simRate !== 1 ? `×${sim.simRate}` : '';
     if (rate !== this._rate) {
       this._rate = rate;

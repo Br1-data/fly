@@ -1443,3 +1443,48 @@ table.breakdown td.pts {
     grid-column: auto;
   }
 }
+
+/* Control position indicator (stick, pedals, throttle) shown while flying by hand. */
+.hud-stick {
+  position: absolute;
+  left: calc(var(--console-left-w, 0px) + 16px);
+  bottom: max(96px, calc(var(--panel-h, 0px) + 18px));
+  display: grid;
+  grid-template-columns: 64px 12px;
+  grid-template-rows: 64px 12px auto;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(6, 12, 22, 0.66);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.35s;
+  pointer-events: none;
+}
+.hud-stick.visible { opacity: 1; }
+.hud-stick small { grid-column: 1 / 3; font-size: 8px; letter-spacing: 1px; color: var(--muted, #9fb0bd); text-align: center; }
+.hud-stick-box {
+  position: relative;
+  border-radius: 6px;
+  background:
+    linear-gradient(#ffffff26, #ffffff26) center / 1px 100% no-repeat,
+    linear-gradient(90deg, #ffffff26, #ffffff26) center / 100% 1px no-repeat,
+    #0b1620;
+}
+.hud-stick-dot {
+  position: absolute;
+  left: calc(50% - 6px);
+  top: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #7fe0a8;
+  box-shadow: 0 0 8px #7fe0a8aa;
+}
+.hud-stick-pedals { grid-column: 1; grid-row: 2; position: relative; border-radius: 4px; background: linear-gradient(90deg, transparent calc(50% - 0.5px), #ffffff30 0 calc(50% + 0.5px), transparent 0), #0b1620; }
+.hud-stick-yaw { position: absolute; top: 2px; bottom: 2px; width: 4px; margin-left: -2px; border-radius: 2px; background: #ffd27a; }
+.hud-stick-throttle { grid-column: 2; grid-row: 1 / 3; position: relative; border-radius: 4px; background: #0b1620; overflow: hidden; }
+.hud-stick-thr { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(#8fd0ff, #3d86c6); }
+body.mouse-yoke #view3d { cursor: crosshair; }
+.touch-device .hud-stick { display: none; }

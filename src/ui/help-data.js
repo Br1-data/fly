@@ -138,8 +138,10 @@ export const QUICK_GUIDE = [
   {
     title: 'Mouse, joystick e gamepad',
     steps: [
-      'Per guardarti intorno trascina sul mondo 3D con il tasto destro; la rotella cambia lo zoom. Y attiva la cloche col mouse: spostare il puntatore comanda beccheggio e rollio.',
-      'I pulsanti e le manopole del cockpit si usano con il mouse. Nella scheda Comandi trovi la funzione di ciascun controllo disponibile sul velivolo e le interazioni previste.',
+      'Per guardarti intorno trascina sul mondo 3D con il tasto destro; la rotella cambia lo zoom. Y attiva la cloche col mouse: il centro della vista esterna è la cloche neutra e il riquadro COMANDI mostra la deflessione.',
+      'Con la tastiera la deflessione cresce mentre tieni premuto il tasto: un tocco breve dà una piccola correzione, rilasciando la cloche torna al centro. Num 5 la centra subito.',
+      'Le manopole del cockpit scorrono tenendo premuto − o + (con accelerazione); Maiusc dà passi grandi, anche con la rotella. Clicca sul valore (HDG, ALT, frequenze, QNH) per digitarlo e conferma con Invio.',
+      'Dopo un clic su pulsanti e cursori del pannello i tasti tornano al volo: frecce e Spazio non spostano più l’ultimo cursore né ripremono il pulsante.',
       'Dal menu Comandi apri Joystick e gamepad. Collega il dispositivo e premi un pulsante per renderlo visibile al browser; assegna gli assi e verifica il verso della risposta prima del decollo.',
       'Regola zona morta, curva e sensibilità se i comandi oscillano o sono troppo bruschi. Se un asse è invertito, correggi la relativa assegnazione; una manetta fisica assegnata può riprendere il controllo della potenza.',
     ],

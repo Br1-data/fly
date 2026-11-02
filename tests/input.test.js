@@ -175,7 +175,7 @@ test('active physical controls take priority while centred axes allow console ho
   assert.equal(sim.pilot.brakeL, 0.25, 'gamepad brake overrides console brake');
   assert.equal(sim.pilot.brakeR, 0.75);
   key('ArrowRight'); key('KeyQ'); key('Space');
-  input.update(0.2);
+  for (let i = 0; i < 3; i++) input.update(0.2);
   assert.equal(sim.pilot.roll, 1);
   assert.equal(sim.pilot.yaw, -1);
   assert.equal(sim.pilot.brakeL, 1);
@@ -255,4 +255,36 @@ test('help and focus loss preserve independent engine power while releasing held
   assert.equal(sim.cockpitInput.throttle2, 0.65);
   input.setSim(sim);
   assert.deepEqual(sim.cockpitInput, {});
+});
+
+test('keyboard deflection builds up progressively and recentres smoothly', () => {
+  const { sim, input, key } = fixture();
+  key('ArrowLeft');
+  input.update(0.05);
+  const tap = sim.pilot.roll;
+  assert.ok(tap < -0.05 && tap > -0.2, `a short tap is a small correction (${tap})`);
+  for (let i = 0; i < 10; i++) input.update(0.05);
+  assert.equal(sim.pilot.roll, -1, 'holding reaches full deflection');
+  input.keys.delete('ArrowLeft');
+  input.update(0.1);
+  assert.ok(sim.pilot.roll > -1 && sim.pilot.roll < 0, 'release starts recentring');
+  for (let i = 0; i < 10; i++) input.update(0.05);
+  assert.equal(sim.pilot.roll, 0, 'centred after release');
+  key('ArrowRight');
+  input.update(0.05);
+  assert.ok(sim.pilot.roll > 0, 'reversal acts at once');
+});
+
+test('controls clicked with the mouse do not capture flight keys', () => {
+  const { sim, input, key, calls } = fixture();
+  const slider = { tagName: 'INPUT', dataset: { pointerFocus: '1' } };
+  const event = key('ArrowUp', { target: slider });
+  assert.ok(event.prevented, 'the slider does not move');
+  input.update(0.1);
+  assert.ok(sim.pilot.pitch < 0, 'the aircraft responds');
+  key('Space', { target: { tagName: 'BUTTON', dataset: { pointerFocus: '1' } } });
+  input.update(0.1);
+  assert.equal(sim.pilot.brakeL, 1, 'Space brakes instead of pressing the last button');
+  key('KeyG', { target: { tagName: 'SELECT', dataset: {} } });
+  assert.equal(calls.filter(([c]) => c === 'gear').length, 0, 'a select reached with Tab keeps its keys');
 });

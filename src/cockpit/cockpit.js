@@ -3,6 +3,15 @@ import { h } from '../ui/dom.js';
 import { clamp } from '../core/math.js';
 import { AIRPORTS } from '../world/world-data.js';
 import { isTouchDevice } from '../core/device.js';
+import { drawGaPanel, drawGlassPanel } from './gauges.js';
+
+const CONSOLE_KEY = 'cieli-aperti.cockpit-consoles';
+function savedConsoles() {
+  try {
+    const saved = JSON.parse(globalThis.localStorage?.getItem(CONSOLE_KEY) || 'null');
+    return saved && typeof saved === 'object' ? { left: !!saved.left, right: !!saved.right } : null;
+  } catch { return null; }
+}
 
 const num = (v, d = 0) => Number.isFinite(v) ? v.toFixed(d) : '—';
 const heading = (v) => String(Math.round(v || 0) % 360 || 360).padStart(3, '0');
@@ -16,8 +25,9 @@ export class Cockpit {
     this.view = 'orbit'; this.night = 0; this.hudVisible = true;
     this._modeChosen = false; this._nextUI = 0; this._nextGauge = 0;
     this.switches = []; this.readouts = [];
-    const openConsoles = this.mode === 'full' && window.innerWidth > 1000 && window.innerHeight > 640;
-    this.consoles = { left: openConsoles, right: openConsoles };
+    // Side consoles start closed (more outside view); on desktop the last choice is remembered.
+    const wide = this.mode === 'full' && !this.touch && window.innerWidth > 1000 && window.innerHeight > 640;
+    this.consoles = (wide && savedConsoles()) || { left: false, right: false };
     if (!document.getElementById('ca-cockpit-style')) document.head.appendChild(h('link#ca-cockpit-style', { rel: 'stylesheet', href: new URL('./cockpit.css', import.meta.url).href }));
     this.canvas = h('canvas.ca-instruments', { role: 'img', 'aria-label': 'Strumenti di volo: velocità, assetto, altitudine, prua, virata e variometro' });
     this.name = h('b'); this.status = h('span.ca-status');
@@ -40,6 +50,7 @@ export class Cockpit {
     for (const panel of [this.el, this.left, this.right]) {
       for (const event of ['pointerdown', 'pointerup', 'click', 'dblclick', 'contextmenu', 'wheel']) panel.addEventListener(event, (e) => e.stopPropagation());
     }
+    this.installFocusRelease();
     this.canvas.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
     this.releaseHeld = () => {
       for (const key of ['pitch', 'roll', 'yaw', 'brakeL', 'brakeR', 'reverse']) if (this.sim.cockpitInput) delete this.sim.cockpitInput[key];
@@ -49,6 +60,34 @@ export class Cockpit {
     this.resize(window.innerWidth, window.innerHeight);
     this.setAircraft(sim.def || { name: 'Cieli Aperti', panel: 'ga', controls: {} });
     this._visibility();
+  }
+
+  /**
+   * Controls used with the mouse or a finger must not keep the keyboard focus: the arrows,
+   * Space and the other flight keys would otherwise move the last slider, change the fuel
+   * selector or press the last button again instead of flying the aircraft. Keyboard users
+   * who Tab into the panel keep the normal behaviour of every control.
+   */
+  installFocusRelease() {
+    const viewFocus = () => {
+      const active = document.activeElement;
+      if (!active || !this.shell.contains(active) || active.classList.contains('ca-knob-entry')) return;
+      active.blur();
+      document.getElementById('view3d')?.focus({ preventScroll: true });
+    };
+    this.shell.addEventListener('pointerdown', (e) => {
+      const control = e.target.closest?.('select, input, button');
+      if (control) control.dataset.pointerFocus = '1';
+    }, true);
+    this.shell.addEventListener('focusout', (e) => { if (e.target.dataset) delete e.target.dataset.pointerFocus; }, true);
+    this.shell.addEventListener('pointerup', (e) => {
+      const control = e.target.closest?.('input[type=range], button');
+      // Wait for the click/change handlers of this same gesture before moving the focus.
+      if (control) setTimeout(viewFocus, 0);
+    }, true);
+    this.shell.addEventListener('change', (e) => {
+      if (e.target.dataset?.pointerFocus) setTimeout(viewFocus, 0);
+    }, true);
   }
 
   get panelFraction() { return this.view === 'cockpit' && this.mode !== 'hidden' ? this.el.getBoundingClientRect().height / Math.max(1, this.height) : 0; }
@@ -64,20 +103,84 @@ export class Cockpit {
     const b = h('button.ca-switch', { type: 'button', 'aria-label': label, title: description, onclick: () => this.command(name, arg) }, label);
     this.switches.push({ b, read }); return b;
   }
-  knob(label, read, command, step, description = label) {
+  /**
+   * Rotary selector with − / + buttons. Holding a button repeats and accelerates, Shift (or
+   * the wheel with Shift) takes big steps, and when `value`/`set` are given a click on the
+   * readout lets the pilot type the exact value (e.g. HDG 250, NAV 110.30).
+   */
+  knob(label, read, command, step, description = label, { value, set, big = 10, decimals = 0 } = {}) {
     const digits = document.createTextNode('');
-    const value = h('span', h('small.ca-knob-label', label), digits);
-    let previous;
     const adjust = (delta) => { if (typeof command === 'function') command(delta); else this.command(command, delta, 'knob'); };
-    const el = h('div.ca-knob', { title: `${description}. Pulsanti o rotella per regolare.`, onwheel: (e) => { e.preventDefault(); adjust(e.deltaY < 0 ? step : -step); } },
-      h('button', { type: 'button', 'aria-label': `Riduci ${label}`, onclick: () => adjust(-step) }, '−'), value,
-      h('button', { type: 'button', 'aria-label': `Aumenta ${label}`, onclick: () => adjust(step) }, '+'));
+    let timer = null;
+    const stop = () => { clearTimeout(timer); timer = null; };
+    const press = (dir) => (e) => {
+      if (e.button > 0) return;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      stop();
+      let count = 0;
+      const tick = () => {
+        count++;
+        const factor = e.shiftKey || count > 22 ? big : count > 9 ? Math.max(2, Math.round(big / 3)) : 1;
+        adjust(dir * step * factor);
+        timer = setTimeout(tick, count === 1 ? 380 : 70);
+      };
+      tick();
+    };
+    const keyStep = (dir) => (e) => { if (e.detail === 0) adjust(dir * step * (e.shiftKey ? big : 1)); };
+    const button = (dir, text, name) => h('button', { type: 'button', 'aria-label': `${name} ${label}`, title: `${name} ${label}: tieni premuto per scorrere, Maiusc per passi grandi`,
+      onpointerdown: press(dir), onpointerup: stop, onpointercancel: stop, onlostpointercapture: stop, onclick: keyStep(dir) }, text);
+    const editable = typeof set === 'function' && typeof value === 'function';
+    const display = h('span', { title: editable ? `${description}. Clic per digitare il valore.` : description, ...(editable ? { role: 'button', tabindex: '0', 'aria-label': `Digita ${label}`, class: 'ca-knob-editable' } : {}) },
+      h('small.ca-knob-label', label), digits);
+    let editing = false;
+    const edit = () => {
+      if (!editable || editing) return;
+      editing = true;
+      const entry = h('input.ca-knob-entry', { type: 'text', inputmode: 'decimal', 'aria-label': `Valore ${label}`, value: Number(value()).toFixed(decimals) });
+      const finish = (apply) => {
+        if (!editing) return;
+        editing = false;
+        const typed = parseFloat(entry.value.replace(',', '.'));
+        if (apply && Number.isFinite(typed)) { set(typed); this.click('knob'); }
+        entry.remove();
+        display.hidden = false;
+        this._nextUI = 0;
+        this.update();
+        document.getElementById('view3d')?.focus({ preventScroll: true });
+      };
+      entry.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      });
+      entry.addEventListener('blur', () => finish(true));
+      display.hidden = true;
+      display.after(entry);
+      entry.focus();
+      entry.select();
+    };
+    display.addEventListener('click', edit);
+    display.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); edit(); } });
+    const el = h('div.ca-knob', { title: `${description}. Rotella per regolare (Maiusc: passi grandi).`, onwheel: (e) => { e.preventDefault(); adjust((e.deltaY < 0 ? 1 : -1) * step * (e.shiftKey ? big : 1)); } },
+      button(-1, '−', 'Riduci'), display, button(1, '+', 'Aumenta'));
+    let previous;
     this.readouts.push(() => {
       const next = String(read());
       if (next !== previous) { digits.textContent = next; previous = next; }
     });
     return el;
   }
+
+  /** Absolute setter for delta-based commands; angles take the short way round. */
+  setter(command, current, { wrap = false, round = null } = {}) {
+    return (target) => {
+      let goal = round ? Math.round(target / round) * round : target;
+      let delta = goal - current();
+      if (wrap) delta = ((delta % 360) + 540) % 360 - 180;
+      if (Math.abs(delta) > 1e-6) this.command(command, delta, 'knob');
+    };
+  }
+
   lever(label, read, write, { min = 0, max = 1, step = 0.01, format = (v) => `${Math.round(v * 100)}%`, description = label, className = '' } = {}) {
     const output = h('output');
     const input = h('input', { type: 'range', min, max, step, 'aria-label': label, title: description, oninput: (e) => { write(Number(e.target.value)); output.textContent = format(Number(e.target.value)); this.click('lever'); } });
@@ -127,7 +230,7 @@ export class Cockpit {
       this.readout(() => `${num(system().busVolts,1)} V  ·  ${num(system().ammeter,1)} A\nBatteria ${num(system().batteryCharge*100)}%${def.panel === 'ga' ? ` · Vuoto ${num(system().vacuum,1)} inHg` : ` · Idraulica ${num(system().hydraulics*100)}%`}`));
     const starts = [row(this.action('Avvio automatico', 'autostart', undefined, 'Esegue la sequenza completa di avviamento (Ctrl+E).'), this.action('Spegni motori', 'shutdown', undefined, 'Interrompe avviamento e alimentazione dei motori.'))];
     if (def.panel === 'ga') {
-      starts.push(row(this.knob('MAG', () => ['OFF','R','L','BOTH','START'][engine().magnetos ?? 0], (delta) => this.command('magnetos', clamp((engine().magnetos ?? 0) + delta,0,3), 'knob'), 1, 'Magneti OFF, destro, sinistro o entrambi')),
+      starts.push(row(this.knob('MAG', () => ['OFF','R','L','BOTH','START'][engine().magnetos ?? 0], (delta) => this.command('magnetos', clamp((engine().magnetos ?? 0) + Math.sign(delta),0,3), 'knob'), 1, 'Magneti OFF, destro, sinistro o entrambi', { big: 1 })),
         this.starter(), row(this.toggle('Pompa carburante', 'fuelPump', () => system().fuelPump, undefined, 'Pompa elettrica ausiliaria del carburante.'), this.toggle('Aria carburatore', 'carbHeat', () => engine().carbHeat, undefined, 'Aria calda al carburatore per prevenire o sciogliere il ghiaccio.')),
         this.select('Selettore carburante', [{value:'off',label:'OFF · chiuso'},{value:'left',label:'LEFT · sinistro'},{value:'both',label:'BOTH · entrambi'},{value:'right',label:'RIGHT · destro'}], () => system().fuelSelector, (v) => this.command('fuelSelector',v)),
         this.lever('Miscela', () => s.pilot.mixture, (v) => this.command('mixture',v,'lever'), {className:'ca-mixture',description:'Rapporto aria/carburante: 100% ricca, 0% taglio miscela.'}));
@@ -188,7 +291,10 @@ export class Cockpit {
     const s=this.sim,a=()=>s.ap||{};
     const modes=[['AP','ap',()=>a().engaged,'Inserisce o disinserisce l’autopilota (Z).'],['HDG','apHdg',()=>a().lateral==='HDG','Segue la prua selezionata.'],['NAV','apNav',()=>a().lateral==='NAV'||a().armedNav,'Arma o segue la navigazione NAV1/GPS.'],['APR','apApr',()=>a().armedApr||a().lateral==='LOC','Arma l’avvicinamento ILS: localizzatore e glideslope.'],['ALT','apAlt',()=>a().vertical==='ALT','Mantiene o cattura la quota.'],['V/S','apVs',()=>a().vertical==='VS','Segue la velocità verticale selezionata.'],['FLC','apFlc',()=>a().vertical==='FLC','Varia la quota mantenendo la velocità selezionata.']];
     this.apStrip.append(...modes.map(([label,command,read,description])=>this.toggle(label,command,read,undefined,description)),
-      this.knob('HDG',()=>heading(a().hdgBug),'hdgBug',1,'Prua selezionata in gradi'),this.knob('ALT',()=>num(a().altSel),'altSel',100,'Quota selezionata in piedi'),this.knob('V/S',()=>num(a().vsSel),'vsSel',100,'Velocità verticale selezionata in piedi/minuto'),this.knob('SPD',()=>num(a().spdSel),'spdSel',1,'Velocità selezionata in nodi per FLC e autothrottle'));
+      this.knob('HDG',()=>heading(a().hdgBug),'hdgBug',1,'Prua selezionata in gradi',{value:()=>a().hdgBug,set:this.setter('hdgBug',()=>a().hdgBug,{wrap:true,round:1})}),
+      this.knob('ALT',()=>num(a().altSel),'altSel',100,'Quota selezionata in piedi',{value:()=>a().altSel,set:this.setter('altSel',()=>a().altSel,{round:100})}),
+      this.knob('V/S',()=>num(a().vsSel),'vsSel',100,'Velocità verticale selezionata in piedi/minuto',{big:5,value:()=>a().vsSel,set:this.setter('vsSel',()=>a().vsSel,{round:100})}),
+      this.knob('SPD',()=>num(a().spdSel),'spdSel',1,'Velocità selezionata in nodi per FLC e autothrottle',{value:()=>a().spdSel,set:this.setter('spdSel',()=>a().spdSel,{round:1})}));
     const section=this.section(this.rightContent,'01 · Direttore di volo',
       this.row(this.toggle('FD',()=>{if(s.ap)s.ap.fd=!s.ap.fd;},()=>a().fd,undefined,'Direttore di volo: calcola le indicazioni di guida senza comandare l’aereo.'),this.action('AP DISCONNECT','apDisconnect',undefined,'Disinserisce immediatamente l’autopilota.')),
       this.row(this.toggle('NAV1 / GPS','apNavSource',()=>a().navSource==='GPS',undefined,'Sceglie la sorgente del modo NAV: radio NAV1 o piano GPS.'),this.action('HDG SYNC','hdgBug','sync','Copia la prua attuale nel selettore HDG.')),
@@ -204,11 +310,11 @@ export class Cockpit {
       const key=`nav${index}`,radio=()=>s[key];
       right(`0${index+1} · NAV ${index}`,
         this.readout(()=>`ATTIVA ${num(radio().active,2)} MHz\nSTBY ${num(radio().standby,2)} MHz\n${radio().valid?`${radio().ident} · DME ${num(radio().dme,1)} NM\nCDI ${num(radio().cdi,2)}${radio().gsValid?' · GS '+num(radio().gs,2):''}`:'NESSUN SEGNALE'}`),
-        this.row(this.knob(`NAV${index}`,()=>num(radio().standby,2),`${key}Tune`,.05,`Frequenza standby NAV${index} in MHz`)),
-        this.row(this.action(`Scambia NAV${index}`,`${key}Swap`,undefined,`Scambia frequenze attiva e standby NAV${index}.`),this.knob(`OBS${index}`,()=>heading(radio().obs),index===1?'obs':'obs2',1,'Rotta OBS del VOR in gradi')));
+        this.row(this.knob(`NAV${index}`,()=>num(radio().standby,2),`${key}Tune`,.05,`Frequenza standby NAV${index} in MHz`,{big:20,decimals:2,value:()=>radio().standby,set:this.setter(`${key}Tune`,()=>radio().standby,{round:.05})})),
+        this.row(this.action(`Scambia NAV${index}`,`${key}Swap`,undefined,`Scambia frequenze attiva e standby NAV${index}.`),this.knob(`OBS${index}`,()=>heading(radio().obs),index===1?'obs':'obs2',1,'Rotta OBS del VOR in gradi',{value:()=>radio().obs,set:this.setter(index===1?'obs':'obs2',()=>radio().obs,{wrap:true,round:1})})));
     }
-    right('04 · COM 1',this.readout(()=>`ATTIVA ${num(s.com1.active,3)} MHz\nSTBY ${num(s.com1.standby,3)} MHz`),this.row(this.knob('COM1',()=>num(s.com1.standby,3),'com1Tune',.025,'Frequenza standby COM1'),this.action('Scambia COM1','com1Swap',undefined,'Attiva la frequenza standby. Sintonizza un ATIS per ricevere il meteo.')));
-    right('05 · ADF / NDB',this.readout(()=>`ATTIVA ${num(s.adf.active)} kHz\nSTBY ${num(s.adf.standby)} kHz\n${s.adf.valid?`${s.adf.ident} · Ril. ${num(s.adf.relBearing)}°`:'NESSUN SEGNALE'}`),this.row(this.knob('ADF',()=>num(s.adf.standby),'adfTune',1,'Frequenza standby ADF in kHz'),this.action('Scambia ADF','adfSwap',undefined,'Scambia le frequenze ADF.')));
+    right('04 · COM 1',this.readout(()=>`ATTIVA ${num(s.com1.active,3)} MHz\nSTBY ${num(s.com1.standby,3)} MHz`),this.row(this.knob('COM1',()=>num(s.com1.standby,3),'com1Tune',.025,'Frequenza standby COM1',{big:40,decimals:3,value:()=>s.com1.standby,set:this.setter('com1Tune',()=>s.com1.standby,{round:.025})}),this.action('Scambia COM1','com1Swap',undefined,'Attiva la frequenza standby. Sintonizza un ATIS per ricevere il meteo.')));
+    right('05 · ADF / NDB',this.readout(()=>`ATTIVA ${num(s.adf.active)} kHz\nSTBY ${num(s.adf.standby)} kHz\n${s.adf.valid?`${s.adf.ident} · Ril. ${num(s.adf.relBearing)}°`:'NESSUN SEGNALE'}`),this.row(this.knob('ADF',()=>num(s.adf.standby),'adfTune',1,'Frequenza standby ADF in kHz',{value:()=>s.adf.standby,set:this.setter('adfTune',()=>s.adf.standby,{round:1})}),this.action('Scambia ADF','adfSwap',undefined,'Scambia le frequenze ADF.')));
     const digits=h('div.ca-xpdr-digits');
     for(let index=0;index<4;index++) {
       const select=h('select',{'aria-label':`Cifra transponder ${index+1}`,title:`Cifra ${index+1} del codice transponder, da 0 a 7.`,onchange:e=>{const code=String(s.xpdr.code).padStart(4,'0').split('');code[index]=e.target.value;this.command('xpdr',Number(code.join('')));}},Array.from({length:8},(_,n)=>h('option',{value:String(n)},String(n))));
@@ -219,9 +325,9 @@ export class Cockpit {
     const gpsSelect=h('select.ca-select',{'aria-label':'Destinazione GPS',title:'Scegli l’aeroporto per il volo diretto.',onchange:e=>{destination=e.target.value;}},AIRPORTS.map(ap=>h('option',{value:ap.icao},`${ap.icao} · ${ap.name}`)));
     right('07 · Navigatore GPS',gpsSelect,this.row(this.action('Diretto GPS',()=>{const ap=AIRPORTS.find(ap=>ap.icao===destination);if(ap)this.sim.command('gpsDirect',{id:ap.icao,n:ap.n,e:ap.e});},undefined,'Attiva il diretto all’aeroporto selezionato; scegliere GPS come sorgente NAV.')),
       this.readout(()=>{const g=s.gps;return g.current?`DEST ${g.current.id}\nPRUA ${heading(g.brg)} · ${num(g.dist/1852,1)} NM\nXTK ${num(g.xtk)} m · ETE ${time(g.ete||0)}`:'GPS · nessuna destinazione';}));
-    right('08 · Altimetro e girobussola',this.row(this.knob('QNH',()=>num((s.fm?.kollsman||101325)/100),'kollsman',1,'Pressione altimetrica in hPa')),
+    right('08 · Altimetro e girobussola',this.row(this.knob('QNH',()=>num((s.fm?.kollsman||101325)/100),'kollsman',1,'Pressione altimetrica in hPa',{value:()=>(s.fm?.kollsman||101325)/100,set:this.setter('kollsman',()=>(s.fm?.kollsman||101325)/100,{round:1})})),
       this.row(this.action('QNH locale','kollsman','local','Imposta il QNH effettivo della regione.'),this.action('STD 1013','kollsman','std','Imposta la pressione standard 1013,25 hPa.')),
-      this.row(this.knob('DG',()=>heading(s.instruments.dg),'dgAdjust',1,'Correzione manuale della girobussola'),this.action('DG SYNC','dgSync',undefined,'Allinea la girobussola alla bussola magnetica.')),
+      this.row(this.knob('DG',()=>heading(s.instruments.dg),'dgAdjust',1,'Correzione manuale della girobussola',{value:()=>s.instruments.dg,set:this.setter('dgAdjust',()=>s.instruments.dg,{wrap:true,round:1})}),this.action('DG SYNC','dgSync',undefined,'Allinea la girobussola alla bussola magnetica.')),
       this.readout(()=>`Bussola ${heading(s.instruments.compass)}°\nGiro ${num((s.fm?.systems.gyroSpin||0)*100)}% · OAT ${num(s.fm?.oatC)} °C`));
     right('09 · Cronometro',this.readout(()=>`TEMPO ${time(s.instruments.timer)} · ${s.instruments.timerRun?'IN CORSO':'FERMO'}`),this.row(this.toggle('Avvia / ferma','timer',()=>s.instruments.timerRun,undefined,'Avvia o arresta il cronometro.'),this.action('Azzera timer','timer','reset','Ferma e azzera il cronometro.')));
   }
@@ -253,7 +359,13 @@ export class Cockpit {
   }
   setView(view){this.view=view;if(view!=='cockpit')this.releaseHeld();this._visibility();}
   setHudVisible(visible){this.hudVisible=!!visible;this._visibility();}
-  toggleConsole(side){this.consoles[side]=!this.consoles[side];if(this.consoles[side]&&(this.touch||this.width<=1000||this.height<=640))this.consoles[side==='left'?'right':'left']=false;this._visibility();}
+  toggleConsole(side){
+    this.consoles[side]=!this.consoles[side];
+    const compact=this.touch||this.width<=1000||this.height<=640;
+    if(this.consoles[side]&&compact)this.consoles[side==='left'?'right':'left']=false;
+    if(!compact){try{globalThis.localStorage?.setItem(CONSOLE_KEY,JSON.stringify(this.consoles));}catch{/* optional */}}
+    this._visibility();
+  }
   setNight(night) {
     this.night = clamp(night, 0, 1);
     this.shell.style.filter = `brightness(${1 - this.night * (this.sim.fm?.systems.lights.panel ? 0.08 : 0.18)})`;
@@ -275,6 +387,9 @@ export class Cockpit {
     const visible=this.view==='cockpit'&&this.mode!=='hidden';
     this.shell.hidden=!visible;this.shell.classList.toggle('ca-mini',this.mode==='mini');
     this.left.hidden=!this.consoles.left;this.right.hidden=!this.consoles.right;
+    // On wide screens the panel uses the width left free by closed consoles.
+    this.shell.style.setProperty('--ca-left',this.consoles.left?'var(--ca-side)':'0px');
+    this.shell.style.setProperty('--ca-right',this.consoles.right?'var(--ca-side)':'0px');
     this.leftToggle.setAttribute('aria-expanded',String(this.consoles.left));this.rightToggle.setAttribute('aria-expanded',String(this.consoles.right));
     this.hud.hidden=this.def?.panel!=='jet'||!this.hudVisible;
     this._nextUI = 0; this._nextGauge = 0;
@@ -311,7 +426,8 @@ export class Cockpit {
     const dpr=Math.min(window.devicePixelRatio||1,2),w=rect.width,hh=rect.height;
     if(this.canvas.width!==Math.round(w*dpr)||this.canvas.height!==Math.round(hh*dpr)){this.canvas.width=Math.round(w*dpr);this.canvas.height=Math.round(hh*dpr);}
     const c=this.ctx;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,hh);
-    if(this.mode==='mini')this.drawMini(c,w,hh,i,fm);else if(this.def.panel==='ga')this.drawAnalog(c,w,hh,i,fm,fm.engines[0]);else this.drawGlass(c,w,hh,i,fm);
+    const data={i,fm,sim:this.sim,def:this.def};
+    if(this.mode==='mini')this.drawMini(c,w,hh,i,fm);else if(this.def.panel==='ga')drawGaPanel(c,w,hh,data);else drawGlassPanel(c,w,hh,data);
     if(!this.hud.hidden)this.drawHud(i,fm);
   }
 
@@ -326,104 +442,6 @@ export class Cockpit {
       const x = w / visibleCells.length * (index + 0.5);
       this.text(c, label, x, 12, 9, '#91a5ae'); this.text(c, value, x, 32, 20, '#9bf0c0'); this.text(c, unit, x, 51, 9, '#91a5ae');
     });
-  }
-
-  dial(c, x, y, r, label, value, unit, needle, min, max, options = {}) {
-    if (!Number.isFinite(r) || r <= 22) return;
-    c.save(); c.translate(x, y);
-    c.fillStyle = '#080e12'; c.strokeStyle = '#4b5b63'; c.lineWidth = 3;
-    c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.fill(); c.stroke();
-    const sweep = Math.PI * 1.5, start = Math.PI * 0.75;
-    if (options.arc) {
-      c.strokeStyle = options.arc; c.lineWidth = 3;
-      c.beginPath(); c.arc(0, 0, r - 7, start + sweep * 0.18, start + sweep * 0.72); c.stroke();
-    }
-    c.lineWidth = 1;
-    for (let n = 0; n <= 10; n++) {
-      const a = start + n / 10 * sweep;
-      c.strokeStyle = '#b0c2ca'; c.beginPath(); c.moveTo(Math.cos(a) * (r - 5), Math.sin(a) * (r - 5)); c.lineTo(Math.cos(a) * (r - (n % 2 ? 9 : 12)), Math.sin(a) * (r - (n % 2 ? 9 : 12))); c.stroke();
-      if (n % 2 === 0) this.text(c, num(min + n / 10 * (max - min)), Math.cos(a) * (r - 21), Math.sin(a) * (r - 21), 8, '#aebdc4');
-    }
-    const a = start + clamp((needle - min) / (max - min), 0, 1) * sweep;
-    c.strokeStyle = '#f8f6de'; c.lineWidth = 2;
-    c.beginPath(); c.moveTo(-Math.cos(a) * 6, -Math.sin(a) * 6); c.lineTo(Math.cos(a) * (r - 12), Math.sin(a) * (r - 12)); c.stroke();
-    c.fillStyle = '#91a4ad'; c.beginPath(); c.arc(0, 0, 3, 0, 7); c.fill();
-    this.text(c, label, 0, -r * 0.3, 8, '#a5b6bf');
-    c.fillStyle = '#132329'; c.fillRect(-26, r * .32 - 6, 52, 13);
-    this.text(c, `${value}`, 0, r * .32, 11, '#e3f1ef'); this.text(c, unit, 0, r * .68, 7, '#8b9ca8');
-    c.restore();
-  }
-
-  attitude(c, x, y, w, hh, i, round = false) {
-    c.save(); c.translate(x, y);
-    c.beginPath(); if (round) c.arc(0, 0, w / 2, 0, 7); else c.rect(-w/2, -hh/2, w, hh); c.clip();
-    c.fillStyle = '#338cc6'; c.fillRect(-w, -hh, w * 2, hh * 2);
-    c.save(); c.rotate(-i.aiRoll * Math.PI / 180); c.translate(0, i.aiPitch * hh / 50);
-    c.fillStyle = '#98734a'; c.fillRect(-w * 4, 0, w * 8, hh * 10);
-    c.strokeStyle = '#f2f1dc'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(-w * 4, 0); c.lineTo(w * 4, 0); c.stroke();
-    for (let pitch = -30; pitch <= 30; pitch += 5) {
-      if (!pitch) continue;
-      const yy = -pitch * hh / 50, size = pitch % 10 ? w * .12 : w * .25;
-      c.beginPath(); c.moveTo(-size, yy); c.lineTo(size, yy); c.stroke();
-      if (pitch % 10 === 0) this.text(c, String(Math.abs(pitch)), size + 10, yy, 8, '#fff');
-    }
-    c.restore();
-    if (this.sim.ap?.fd && this.sim.fm?.systems.avionicsPowered) {
-      const dx = clamp(this.sim.ap.phiCmd - i.aiRoll, -30, 30) * w / 100;
-      const dy = -clamp(this.sim.ap.thetaCmd - i.aiPitch, -15, 15) * hh / 50;
-      c.strokeStyle = '#ff83e3';
-      c.lineWidth = 2;
-      c.beginPath();
-      c.moveTo(dx, -hh * 0.25); c.lineTo(dx, hh * 0.25);
-      c.moveTo(-w * 0.28, dy); c.lineTo(w * 0.28, dy);
-      c.stroke();
-    }
-    c.strokeStyle = '#ffe876'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(-w*.3, 0); c.lineTo(-w*.10, 0); c.lineTo(-w*.07, 5); c.lineTo(0,0); c.lineTo(w*.07,5); c.lineTo(w*.10,0); c.lineTo(w*.3,0); c.stroke();
-    this.text(c, '▼', 0, -hh * .42, 11, '#ffdf6e');
-    c.restore();
-    c.strokeStyle = '#4b5b63'; c.lineWidth = 3; c.beginPath(); if (round) c.arc(x, y, w / 2, 0, 7); else c.rect(x-w/2, y-hh/2,w,hh); c.stroke();
-  }
-
-  drawAnalog(c, w, hh, i, fm, engine) {
-    const pack = Math.min(w * .60, 430), radius = Math.min((hh - 16) / 4, (pack - 24) / 6);
-    const centers = [pack/6, pack/2, pack*5/6], ys = [hh/4, hh*3/4];
-    this.dial(c, centers[0], ys[0], radius, 'ANEMOMETRO', num(i.asi), 'KT', i.asi, 0, 200, { arc: '#70c28c' });
-    this.attitude(c, centers[1], ys[0], radius*2, radius*2, i, true);
-    this.dial(c, centers[2], ys[0], radius, 'ALTIMETRO', num(i.alt), 'FT', ((i.alt % 1000) + 1000) % 1000, 0, 1000);
-    this.dial(c, centers[0], ys[1], radius, 'VIROMETRO', num(i.turnRate,1), '° / SEC', i.turnRate, -6, 6);
-    this.dial(c, centers[1], ys[1], radius, 'DIREZIONALE', heading(i.dg), 'PRUA', i.dg, 0, 360);
-    this.dial(c, centers[2], ys[1], radius, 'VARIOMETRO', num(i.vsi), 'FT / MIN', i.vsi, -2000, 2000);
-    const x = pack + 12, ww = w - x - 12;
-    c.fillStyle = '#071012'; c.fillRect(x, 10, ww, hh-20); c.strokeStyle = '#3b5159'; c.strokeRect(x, 10, ww, hh-20);
-    this.text(c, 'NAV / COM', x + 12, 25, 10, '#72919c','left');
-    if (fm.systems.avionicsPowered) {
-      this.text(c, `${num(this.sim.nav1.active,2)}  NAV1  ${num(this.sim.nav1.standby,2)}`, x + 12, 45, 12, '#ffd28b','left');
-      this.text(c, `${num(this.sim.com1.active,2)}  COM1 ${num(this.sim.com1.standby,2)}`, x + 12, 65, 12, '#ffd28b','left');
-      this.text(c, `${this.sim.nav1.ident || '—'} · ${this.sim.nav1.valid ? num(this.sim.nav1.dme,1) + ' NM' : 'NESSUN SEGNALE'}`, x+12, 86, 10, '#a1d3c3','left');
-    } else this.text(c, 'AVIONICA SPENTA', x + ww/2, 60, 12, '#866e54');
-    c.strokeStyle = '#2b4148'; c.beginPath(); c.moveTo(x+10,98); c.lineTo(x+ww-10,98); c.stroke();
-    const rows = [[`RPM  ${num(engine.rpm)}`, `MISCELA ${num(this.sim.pilot.mixture*100)}%`], [`CARB. ${num(fm.systems.fuelTotal)} kg`, `OLIO ${num(engine.oilPress)} psi`], [`QNH ${num(fm.kollsman/100)} hPa`, `${this.sim.nav1.valid ? 'CDI ' + num(this.sim.nav1.cdi, 2) : 'FLAP ' + this.def.controls.flapDetents[fm.systems.flapsLever].name}`]];
-    rows.forEach(([a,b], index) => { this.text(c,a,x+12,116+index*24,10,'#b7c9c8','left'); if (ww > 235) this.text(c,b,x+ww*.52,116+index*24,10,'#b7c9c8','left'); });
-  }
-
-  drawGlass(c,w,hh,i,fm) {
-    if (!fm.systems.avionicsPowered) { this.text(c, 'AVIONICA SPENTA', w/2,hh/2,14,'#a9845b'); return; }
-    const x = w * .3, ww = Math.min(w * .40, 260), ah = hh - 38;
-    this.attitude(c,x,hh/2,ww,ah,i);
-    const tape = (xx,label,val,unit) => { c.fillStyle='#0b171c';c.fillRect(xx-37,12,74,hh-24);this.text(c,label,xx,26,9,'#8cb7cd');this.text(c,num(val),xx,hh/2,22,'#f3faf8');this.text(c,unit,xx,hh-22,9,'#88a3b5'); };
-    tape(42,'IAS',i.asi,'KT'); tape(w*.58,'ALT',i.alt,'FT');
-    this.text(c, `HDG ${heading(i.dg)}    V/S ${num(i.vsi)}`, x,hh-8,11,'#a1e4f2');
-    const xx=w*.69, tx=w*.98;
-    this.text(c, 'MOTORE / SISTEMI', xx,18,10,'#7ec6d4','left');
-    fm.engines.forEach((engine,index) => {
-      const y=45+index*32;
-      this.text(c,`N1 ${index+1}`,xx,y,10,'#adbdc5','left');
-      this.text(c,`${num(engine.n1,1)} %`,tx,y,17,'#8ef7ae','right');
-      c.fillStyle='#20373b';c.fillRect(xx,y+11,tx-xx,3);c.fillStyle='#8ef7ae';c.fillRect(xx,y+11,(tx-xx)*clamp(engine.n1/100,0,1),3);
-    });
-    this.text(c,`CARB. ${num(fm.systems.fuelTotal)} KG`,xx,hh-62,11,'#d5e5e9','left');
-    this.text(c,`CARRELLO ${fm.systems.gearPos>.98?'▼ ▼ ▼':fm.systems.gearPos<.02?'SU':'TRANSITO'}`,xx,hh-41,11,fm.systems.gearPos>.98?'#91eea8':'#ffd06d','left');
-    this.text(c,`FLAP ${this.def.controls.flapDetents[fm.systems.flapsLever].name}`,xx,hh-21,11,'#d5e5e9','left');
   }
 
   drawHud(i, fm) {
