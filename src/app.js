@@ -20,7 +20,7 @@ import { MapOverlay } from './ui/map.js';
 import { ChecklistOverlay } from './ui/checklist.js';
 import { HelpOverlay } from './ui/help.js';
 import { TouchControls } from './input/touch-controls.js';
-import { deviceClass, isIPad, isTouchDevice } from './core/device.js';
+import { deviceClass, isIPad, isIPhone, isTouchDevice } from './core/device.js';
 
 const VIEW_NAMES = { cockpit: 'Cockpit', chase: 'Esterna', orbit: 'Orbitale', tower: 'Torre di controllo', flyby: 'Passaggio' };
 const SIM_RATES = [1, 2, 4, 8];
@@ -40,7 +40,8 @@ export class App {
     this._needsRender = true;
     document.documentElement.classList.toggle('touch-device', this.touchMode);
     document.documentElement.classList.toggle('tablet-device', deviceClass() === 'tablet');
-    document.documentElement.classList.toggle('ios-device', isIPad() || /iPhone|iPod/.test(navigator.userAgent || ''));
+    document.documentElement.classList.toggle('ios-device', isIPad() || isIPhone());
+    document.documentElement.classList.toggle('phone-device', ['phone', 'iphone'].includes(deviceClass()));
     this.settings = loadSettings();
     this.state = 'boot';
     this.flightSim = new Simulation();

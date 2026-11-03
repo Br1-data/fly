@@ -201,6 +201,55 @@ try {
   await ipad.screenshot({ path: path.join(output, 'ipad-landscape.png') });
   await tablet.close();
   check('iPad: nessun errore', errors.length === 0);
+
+  // iPhone 16 (393×852 @3x) with the safe areas of the Dynamic Island and home indicator.
+  const iphoneUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
+  const phone16 = await browser.newContext({ viewport: { width: 393, height: 852 }, screen: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true, userAgent: iphoneUA });
+  const iphone = await phone16.newPage();
+  iphone.setDefaultTimeout(30000);
+  iphone.on('pageerror', (e) => errors.push(`iPhone: ${e.message}`));
+  iphone.on('response', (r) => { if (r.status() >= 400) errors.push(`iPhone HTTP ${r.status()} ${new URL(r.url()).pathname}`); });
+  const safeArea = await phone16.newCDPSession(iphone);
+  const insets = async (top, bottom, left, right) => safeArea.send('Emulation.setSafeAreaInsetsOverride', { insets: { top, bottom, left, right } }).catch(() => {});
+  await insets(59, 34, 0, 0);
+  await iphone.goto(`http://127.0.0.1:${server.address().port}${basePath}`);
+  await iphone.waitForFunction(() => window.__cieli?.state === 'menu', null, { timeout: 90000 });
+  check('iPhone 16: qualità media, risoluzione 2×, antialiasing e 60 fps', await iphone.evaluate(() => {
+    const r = window.__cieli.renderer;
+    return window.__cieli.settings.quality === 'medium' && r.profile.device === 'iphone' && r.webgl.getPixelRatio() > 1.5 && r.profile.antialias && r.profile.maxFps === 60;
+  }));
+  await iphone.evaluate(async () => { await window.__cieli.startFlight({ aircraft: 'jet', start: { type: 'runway', airport: 'XAQU', runway: '07' }, time: 11 }, null); });
+  await iphone.waitForFunction(() => window.__cieli.state === 'flight', null, { timeout: 120000 });
+  await iphone.locator('.touch-controls:not([hidden])').waitFor();
+  const layout = () => iphone.evaluate(() => {
+    const box = (q) => [...document.querySelectorAll(q)].filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect());
+    const toolbar = box('.flight-toolbar')[0], panel = box('.ca-panel')[0];
+    const controls = box('.touch-stick, .touch-throttle, .touch-controls button:not([hidden])');
+    const hud = box('.ca-jet-hud')[0];
+    const columns = box('.touch-flight-left, .touch-flight-right');
+    const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    return {
+      onScreen: controls.every((r) => r.left >= 0 && r.top >= 0 && r.right <= innerWidth + 1 && r.bottom <= panel.top + 1 && r.width >= 44 && r.height >= 44),
+      toastsBelowToolbar: box('.hud-toasts .toast').every((r) => r.top >= toolbar.bottom - 1 || !overlaps(r, toolbar)),
+      hudClear: !hud || columns.every((c) => !overlaps(hud, c)) && hud.bottom <= panel.top + 1,
+      overflow: document.documentElement.scrollWidth > innerWidth + 1,
+    };
+  });
+  await iphone.waitForTimeout(500);
+  let l = await layout();
+  check('iPhone 16 verticale: comandi sopra il pannello, messaggi sotto la barra, HUD libero', l.onScreen && l.toastsBelowToolbar && l.hudClear && !l.overflow);
+  await iphone.screenshot({ path: path.join(output, 'iphone-portrait.png') });
+  // Sideways in Safari: the bars leave about 340 px of height, the island sits on the left.
+  await insets(0, 21, 59, 59);
+  await iphone.setViewportSize({ width: 852, height: 340 });
+  await iphone.evaluate(() => window.dispatchEvent(new Event('orientationchange')));
+  await iphone.waitForFunction(() => window.__cieli.cockpit.width === 852);
+  await iphone.waitForTimeout(500);
+  l = await layout();
+  check('iPhone 16 orizzontale (Safari): tutti i comandi visibili, HUD tra le colonne', l.onScreen && l.hudClear && !l.overflow);
+  await iphone.screenshot({ path: path.join(output, 'iphone-landscape.png') });
+  await phone16.close();
+  check('iPhone: nessun errore', errors.length === 0);
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ success: true, checks, errors }, null, 2));
   console.log(`Mobile smoke completato: ${checks.length} verifiche.`);
 } catch (error) {

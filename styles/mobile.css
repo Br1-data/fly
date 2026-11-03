@@ -1,5 +1,7 @@
 /* Mobile layout keeps menus scrollable and reserves the device's safe areas. */
 html, body { overscroll-behavior: none; }
+/* iOS Safari enlarges text on rotation unless told not to. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 #view3d, #cockpit-root, #hud-root, #screen-root, #overlay-root { height: 100dvh; }
 #view3d, .map-canvas { touch-action: none; }
 button, select, input[type='range'] { touch-action: manipulation; }
@@ -165,3 +167,54 @@ button, select, input[type='range'] { touch-action: manipulation; }
 .tablet-device .ca-shell .ca-ap-strip .ca-knob { min-width: 160px; }
 .tablet-device .hud-strip .hud-cell:nth-child(n+6) { display: flex; }
 .tablet-device .hud-mission, .tablet-device body[data-state='flight'].cockpit-view .hud-mission { width: min(340px, calc(100vw - 16px)); }
+
+/* iPhone and other notched phones: everything stays clear of the Dynamic Island, the
+   rounded corners and the home indicator, and below the flight toolbar. */
+@media (pointer: coarse) {
+  .hud-toasts, body[data-state='flight'].cockpit-view .hud-toasts {
+    top: calc(max(6px, env(safe-area-inset-top)) + 58px);
+    left: max(8px, env(safe-area-inset-left));
+  }
+  .hud-mission, body[data-state='flight'].cockpit-view .hud-mission {
+    top: calc(max(6px, env(safe-area-inset-top)) + 58px);
+    right: max(8px, env(safe-area-inset-right));
+  }
+  .hud-strip { top: calc(max(6px, env(safe-area-inset-top)) + 58px); }
+  .checklist-overlay {
+    top: calc(max(6px, env(safe-area-inset-top)) + 58px);
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    max-height: calc(100dvh - var(--panel-h, 0px) - max(6px, env(safe-area-inset-top)) - 70px);
+  }
+  .landing-report { top: calc(max(6px, env(safe-area-inset-top)) + 64px); }
+  .touch-device body[data-state='flight'] .hud-atis { top: calc(max(6px, env(safe-area-inset-top)) + 104px); }
+  .touch-device .ca-console { top: calc(64px + env(safe-area-inset-top)); }
+}
+
+/* Phones held sideways (also with Safari's bars): messages move to the centre, between
+   the stick and the throttle columns, and the right column gets three button columns. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 500px) {
+  /* Width of the free centre: the right column (216 px) is the wider one. */
+  html { --centre-w: min(300px, calc(100vw - 2 * (216px + max(12px, env(safe-area-inset-right))) - 12px)); }
+  .hud-toasts, body[data-state='flight'].cockpit-view .hud-toasts {
+    top: auto;
+    bottom: calc(var(--panel-h, 0px) + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: var(--centre-w);
+    align-items: center;
+  }
+  .hud-mission, body[data-state='flight'].cockpit-view .hud-mission {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: var(--centre-w);
+    max-height: min(25dvh, calc(100dvh - var(--panel-h, 0px) - 130px));
+  }
+  .touch-device body[data-state='flight'] .hud-atis {
+    top: calc(max(3px, env(safe-area-inset-top)) + 62px);
+    width: var(--centre-w);
+    max-height: max(48px, min(112px, calc(100dvh - var(--panel-h, 0px) - 130px)));
+  }
+}

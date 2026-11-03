@@ -78,6 +78,15 @@
   .touch-stick { width: 112px; height: 112px; }
   .touch-throttle { height: 106px; }
   .touch-flight-left, .touch-flight-right { gap: 6px; }
+  /* Three button columns keep every action on screen when Safari's bars take height. */
+  .touch-flight-right { grid-template-columns: 48px 162px; }
+  .touch-actions { grid-template-columns: repeat(3, 50px); }
+}
+@media (orientation: landscape) and (max-height: 360px) {
+  .touch-stick { width: 104px; height: 104px; }
+  .touch-throttle { height: 92px; }
+  .touch-controls .touch-button { min-height: 44px; }
+  .touch-controls .touch-brake { min-height: 44px; }
 }
 
 /* Tablets: larger stick and throttle travel for finer control, bigger buttons. */

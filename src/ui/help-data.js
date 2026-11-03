@@ -92,8 +92,8 @@ export const QUICK_GUIDE = [
   {
     title: 'Su smartphone e tablet',
     steps: [
-      'Sugli smartphone la grafica parte in modalità leggera con il pannello compatto; su iPad e tablet in qualità media a 60 fotogrammi al secondo con il pannello completo. Se il dispositivo rallenta, la risoluzione si riduce da sola per mantenere il volo fluido; puoi cambiare livello da Impostazioni.',
-      'Su iPad: in Safari tocca Condividi e poi «Aggiungi alla schermata Home» per giocare a schermo intero, senza barre del browser. Con una tastiera collegata la manetta è su = e - e i flap su [ e ], perché la tastiera dell’iPad non ha i tasti F.',
+      'Sugli smartphone la grafica parte in modalità leggera con il pannello compatto; su iPhone in qualità media, nitida e a 60 fotogrammi al secondo; su iPad e tablet in qualità media a 60 fotogrammi al secondo con il pannello completo. Se il dispositivo rallenta, la risoluzione si riduce da sola per mantenere il volo fluido; puoi cambiare livello da Impostazioni.',
+      'Su iPad e iPhone: in Safari tocca Condividi e poi «Aggiungi alla schermata Home» per giocare a schermo intero, senza barre del browser. Con una tastiera collegata la manetta è su = e - e i flap su [ e ], perché la tastiera dell’iPad non ha i tasti F.',
       'Appoggia il dito sulla cloche circolare in basso a sinistra: il punto in cui lo appoggi è il neutro, quindi non c’è nessuno scatto. Trascina verso il basso per cabrare, in alto per picchiare, lateralmente per inclinare le ali; rilasciando la cloche torna al centro.',
       'TRIM compensa l’assetto: mentre tieni la cloche in salita o in discesa toccalo con un altro dito, poi rilascia e l’aereo mantiene l’assetto da solo (sull’AX-320 il fly-by-wire lo fa già). In Comandi puoi scegliere la risposta della cloche touch: Precisa, Normale o Diretta.',
       'Scorri la manetta POTENZA a destra. Puoi usare contemporaneamente cloche, pedaliera e freni con dita diverse; la potenza selezionata rimane al rilascio.',

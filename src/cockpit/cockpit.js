@@ -420,6 +420,30 @@ export class Cockpit {
     document.documentElement.style.setProperty('--console-w',`${Math.max(left,right)}px`);
     document.documentElement.style.setProperty('--console-left-w',`${left}px`);
     document.documentElement.style.setProperty('--console-right-w',`${right}px`);
+    if(visible&&!this.hud.hidden)this.fitHud();
+  }
+  /** The jet HUD fills the free outside view between the flight toolbar and the panel. */
+  fitHud(){
+    const panel=this.el.getBoundingClientRect().height;
+    const top=(document.querySelector('.flight-toolbar')?.getBoundingClientRect().bottom||56)+6;
+    let bottom=this.height-panel-8,x0=12,x1=this.width-12;
+    // Touch flight controls: use the gap between their columns when it is wide enough
+    // (landscape), otherwise stay above them (portrait phones).
+    const touch=document.querySelector('.touch-controls');
+    if(touch&&!touch.hidden){
+      const l=touch.querySelector('.touch-flight-left')?.getBoundingClientRect(),r=touch.querySelector('.touch-flight-right')?.getBoundingClientRect();
+      if(l&&r&&l.width&&r.width){
+        if(r.left-l.right>=220){x0=l.right+8;x1=r.left-8;}
+        else bottom=Math.min(bottom,Math.min(l.top,r.top)-8);
+      }
+    }
+    const avail=Math.max(60,bottom-top);
+    const w=Math.max(120,Math.min(360,x1-x0,(avail*0.9)*360/230));
+    const h=w*230/360;
+    const key=`${Math.round(w)}:${Math.round(top)}:${Math.round(avail)}:${Math.round(x0)}:${Math.round(x1)}`;
+    if(key===this._hudKey)return;
+    this._hudKey=key;
+    Object.assign(this.hud.style,{width:`${w}px`,height:`${h}px`,left:`${(x0+x1)/2-w/2}px`,top:`${top+Math.max(0,(avail-h)/2)}px`});
   }
   update(){
     const{fm,instruments:i,ap}=this.sim;if(!fm||this.shell.hidden)return;

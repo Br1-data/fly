@@ -2,12 +2,25 @@
 // iPads are the exception: iPadOS Safari presents itself as a Mac ("desktop-class browsing")
 // and reports a fine pointer when a trackpad is attached, so they are recognised explicitly.
 
+/** A Mac user agent on a multi-touch screen: iPadOS, or an iPhone in "desktop website" mode. */
+function touchMac(nav) {
+  return /\bMacintosh\b/.test(nav.userAgent || '') && (nav.maxTouchPoints || 0) > 1;
+}
+
 /** True on an iPad, including iPadOS Safari with the desktop (Macintosh) user agent. */
 export function isIPad(nav = globalThis.navigator) {
   if (!nav) return false;
-  const ua = nav.userAgent || '';
-  if (/\biPad\b/.test(ua)) return true;
-  return /\bMacintosh\b/.test(ua) && (nav.maxTouchPoints || 0) > 1;
+  if (/\biPad\b/.test(nav.userAgent || '')) return true;
+  const side = shortSide();
+  return touchMac(nav) && (side === 0 || side >= 600);
+}
+
+/** True on an iPhone or iPod touch (also when Safari requests the desktop website). */
+export function isIPhone(nav = globalThis.navigator) {
+  if (!nav) return false;
+  if (/\b(iPhone|iPod)\b/.test(nav.userAgent || '')) return true;
+  const side = shortSide();
+  return touchMac(nav) && side > 0 && side < 600;
 }
 
 function coarsePointer() {
@@ -23,11 +36,13 @@ function shortSide() {
 }
 
 /**
- * 'phone', 'tablet' or 'desktop'. Tablets are touch devices whose short side is at least
- * 600 CSS px (every iPad, including the mini); they get richer defaults than phones.
+ * 'phone', 'iphone', 'tablet' or 'desktop'. Tablets are touch devices whose short side is at
+ * least 600 CSS px (every iPad, including the mini). iPhones are phones with Apple GPUs and
+ * high-density screens: they get a sharper, smoother profile than other phones.
  */
 export function deviceClass() {
   if (isIPad()) return 'tablet';
+  if (isIPhone()) return 'iphone';
   if (!coarsePointer()) return 'desktop';
   return shortSide() >= 600 ? 'tablet' : 'phone';
 }

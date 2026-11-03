@@ -23,7 +23,7 @@ const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
 // 'desktop', 'phone' or 'tablet' (a boolean keeps the old meaning: true = phone).
 export function getRenderProfile(quality = 'medium', device = 'desktop') {
   const level = ['low', 'medium', 'high'].includes(quality) ? quality : 'medium';
-  const kind = device === true ? 'phone' : ['phone', 'tablet'].includes(device) ? device : 'desktop';
+  const kind = device === true ? 'phone' : ['phone', 'iphone', 'tablet'].includes(device) ? device : 'desktop';
   const rich = level !== 'low';
   const common = {
     quality: level,
@@ -40,6 +40,20 @@ export function getRenderProfile(quality = 'medium', device = 'desktop') {
       antialias: rich,
       pixelRatioMax: level === 'low' ? 1 : level === 'high' ? 2 : 1.5,
       maxBufferPixels: level === 'low' ? 1_500_000 : level === 'high' ? 5_000_000 : 3_200_000,
+      shadows: rich,
+      landingLight: rich,
+      maxFps: rich ? 60 : 30,
+      dynamicResolution: true,
+    };
+  }
+  if (kind === 'iphone') {
+    // 3× screens look soft at 1× CSS resolution; Apple phone GPUs manage 2× with MSAA
+    // (resolved on chip) at 60 fps, and dynamic resolution covers older models.
+    return {
+      ...common,
+      antialias: rich,
+      pixelRatioMax: level === 'low' ? 1 : level === 'high' ? 3 : 2,
+      maxBufferPixels: level === 'low' ? 1_000_000 : level === 'high' ? 3_100_000 : 1_800_000,
       shadows: rich,
       landingLight: rich,
       maxFps: rich ? 60 : 30,

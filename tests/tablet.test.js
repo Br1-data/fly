@@ -130,3 +130,27 @@ test('dynamic resolution trades sharpness for frame rate and recovers', async ()
   SceneRenderer.prototype.adaptResolution.call(fake, now + 100000);
   assert.equal(fake.resolutionScale, paused, 'a long pause is ignored');
 });
+
+test('iPhones get a sharp Apple-GPU profile, also in Safari desktop-website mode', (t) => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
+  const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15';
+  let nav = { userAgent: iphone, maxTouchPoints: 5 };
+  withGlobals(t, { matchMedia: () => ({ matches: true }), screen: { width: 393, height: 852 } });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, get: () => nav });
+  t.after(() => { delete globalThis.navigator; });
+  assert.equal(deviceClass(), 'iphone');
+  assert.equal(defaultQuality(), 'medium');
+  nav = { userAgent: mac, maxTouchPoints: 5 };
+  assert.equal(deviceClass(), 'iphone', 'Mac user agent on a phone-sized touch screen');
+  const profile = getRenderProfile('medium', 'iphone');
+  assert.equal(profile.antialias, true);
+  assert.equal(profile.maxFps, 60);
+  assert.equal(getRenderPixelRatio(profile, 393, 852, 3), 2, 'iPhone 16: 2× instead of a soft 1×');
+  assert.ok(440 * 956 * getRenderPixelRatio(getRenderProfile('high', 'iphone'), 440, 956, 3) ** 2 <= 3_100_000 + 1);
+  assert.equal(getRenderProfile('low', 'iphone').maxFps, 30);
+  assert.equal(getRenderPixelRatio(getRenderProfile('low', 'iphone'), 393, 852, 3), 1);
+  // Other phones keep the light defaults.
+  nav = { userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8)', maxTouchPoints: 5 };
+  assert.equal(deviceClass(), 'phone');
+  assert.equal(defaultQuality(), 'low');
+});

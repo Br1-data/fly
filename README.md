@@ -114,7 +114,9 @@ consentono di volare senza tastiera. Trascina il panorama per guardarti intorno;
 allarga o avvicina due dita per lo zoom.
 
 Sugli smartphone la prima configurazione usa qualità bassa, pannello compatto e un obiettivo di
-30 fps; il framebuffer è limitato e il terreno usa 49 tasselli. Su **iPad** e tablet (riconosciuti anche
+30 fps; il framebuffer è limitato e il terreno usa 49 tasselli. Su **iPhone** (anche con «sito desktop»
+attivo in Safari) parte in qualità media a 60 fps con risoluzione 2× e antialiasing; comandi, messaggi
+e HUD rispettano Dynamic Island, angoli e indicatore Home, anche in orizzontale con le barre di Safari. Su **iPad** e tablet (riconosciuti anche
 quando Safari si presenta come Mac) parte in qualità media a 60 fps, con antialiasing, risoluzione
 1,5× e pannello strumenti completo anche in verticale, comandi touch più grandi e tasselli generati in
 un Web Worker per un volo senza scatti. Su tutti i dispositivi touch la risoluzione si adatta da sola
@@ -135,7 +137,7 @@ SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/ npm run smoke:mobile
 
 La prova automatica usa Chromium con emulazione touch e tre dita simultanee; verifica layout
 da 320 × 568 a 768 × 1024, incluso 844 × 390 orizzontale, e un iPad emulato (user agent iPadOS,
-820 × 1180 e 1180 × 820). Non sostituisce una misura delle
+820 × 1180 e 1180 × 820) e un iPhone 16 con le sue zone sicure (393 × 852 e 852 × 340). Non sostituisce una misura delle
 prestazioni su hardware Android/iOS reale. Il workflow Pages esegue sia la prova desktop sia
 quella mobile prima del deploy. Il bundle web include solo i moduli three.js effettivamente usati.
 
