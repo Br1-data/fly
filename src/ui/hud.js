@@ -1,5 +1,5 @@
 // In-flight overlay: info strip (external views), toasts, warnings, mission panel, ATIS box.
-import { h, button, clear, num, pad3, timeStr } from './dom.js';
+import { h, button, clear, installTouchTaps, num, pad3, timeStr } from './dom.js';
 import { FT, FPM } from '../core/units.js';
 
 export class FlightHud {
@@ -46,6 +46,7 @@ export class FlightHud {
       tool('Pausa', 'Esc', () => app.openPauseMenu()));
     this.el = h('div.hud', toolbar, this.toasts, this.warn, this.flashEl, this.missionEl, this.atisEl, this.rateEl, this.stick, this.strip);
     root.appendChild(this.el);
+    installTouchTaps(toolbar);
     this._t = 0;
     this._toastMap = new Map();
     this.hide();

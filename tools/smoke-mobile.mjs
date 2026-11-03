@@ -64,8 +64,11 @@ try {
   const stick = await bounds(page.locator('.touch-stick'));
   const brake = await bounds(page.locator('.touch-brake'));
   const power = await bounds(page.locator('.touch-throttle'));
-  const fingers = [point(1, stick.x + stick.width * .7, stick.y + stick.height * .6), point(2, brake.x + brake.width / 2, brake.y + brake.height / 2), point(3, power.x + power.width / 2, power.y + power.height * .25)];
-  await touch('touchStart', fingers);
+  // The stick's neutral is where the finger lands: press at the centre, then drag.
+  const centre = point(1, stick.x + stick.width / 2, stick.y + stick.height / 2);
+  const fingers = [point(1, stick.x + stick.width * .82, stick.y + stick.height * .78), point(2, brake.x + brake.width / 2, brake.y + brake.height / 2), point(3, power.x + power.width / 2, power.y + power.height * .25)];
+  await touch('touchStart', [centre, fingers[1], fingers[2]]);
+  await touch('touchMove', fingers);
   await page.waitForFunction(() => {
     const p = window.__cieli.flightSim.pilot;
     return p.pitch > .1 && p.roll > .2 && p.brakeL === 1 && p.brakeR === 1 && Math.abs(p.throttle - .75) < .03;
@@ -78,7 +81,8 @@ try {
   });
   check('Rilascio touch: comandi centrati e potenza conservata', await page.evaluate(() => Math.abs(window.__cieli.flightSim.pilot.throttle - .75) < .03));
   // Exercise cancellation while the finger is still deflecting the stick.
-  await touch('touchStart', [fingers[0]]);
+  await touch('touchStart', [centre]);
+  await touch('touchMove', [fingers[0]]);
   await touch('touchCancel', []);
   await page.waitForFunction(() => !window.__cieli.touchControls.pointers.size && Math.abs(window.__cieli.flightSim.pilot.roll) < .01);
   check('Gesto interrotto: nessun comando bloccato', true);

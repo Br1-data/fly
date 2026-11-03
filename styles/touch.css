@@ -38,6 +38,10 @@
 }
 .touch-stick-label { position: absolute; top: 9px; left: 0; width: 100%; text-align: center; font-size: 9px; letter-spacing: 1.3px; color: #c8e3f4; pointer-events: none; }
 .touch-stick-thumb { position: absolute; width: 44px; height: 44px; left: calc(50% - 22px); top: calc(50% - 22px); border: 2px solid #b3e8ff; border-radius: 50%; background: #397595b3; box-shadow: 0 0 14px #33b7ff33; pointer-events: none; }
+/* Neutral point of the current touch (the stick deflects from where the finger landed). */
+.touch-stick-origin { position: absolute; width: 14px; height: 14px; left: calc(50% - 7px); top: calc(50% - 7px); border-radius: 50%; border: 2px dashed #b3e8ff99; opacity: 0; pointer-events: none; }
+.touch-stick-active .touch-stick-origin { opacity: 1; }
+.touch-controls .touch-trim { background: #1d3a2ee6; border-color: #8fe0b099; }
 .touch-rudder { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .touch-actions { display: grid; grid-template-columns: repeat(2, 50px); gap: 6px; }
 .touch-controls .touch-button {

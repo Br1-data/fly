@@ -56,9 +56,9 @@ function fixture(coarse = true) {
   const app = { state: 'flight', flightSim: sim, input, onAction: (action) => actions.push(action) };
   const controls = new TouchControls(root, app);
   controls.setEnabled(true);
-  const pointer = (element, type, id, x = 70, y = 80, pointerType = 'touch') => {
+  const pointer = (element, type, id, x = 70, y = 80, pointerType = 'touch', button = 0) => {
     const event = new Event(type, { cancelable: true });
-    Object.assign(event, { pointerId: id, pointerType, clientX: x, clientY: y });
+    Object.assign(event, { pointerId: id, pointerType, clientX: x, clientY: y, button });
     element.dispatchEvent(event);
     return event;
   };
@@ -71,7 +71,8 @@ test('independent fingers can steer, use rudder, brake and adjust power together
   const f = fixture();
   try {
     const { pointer, controls: c, input, sim, rudder } = f;
-    pointer(c.stick, 'pointerdown', 1, 106, 116);
+    pointer(c.stick, 'pointerdown', 1, 70, 80);
+    pointer(c.stick, 'pointermove', 1, 110, 120);
     pointer(c.brake, 'pointerdown', 2);
     pointer(rudder[0], 'pointerdown', 3);
     sim.cockpitInput.throttle2 = 0.2;
@@ -104,8 +105,10 @@ test('a second stick finger cannot steal control and opposite pedals cancel safe
   const f = fixture();
   try {
     const { controls: c, pointer, sim, rudder } = f;
-    pointer(c.stick, 'pointerdown', 1, 100, 80);
+    pointer(c.stick, 'pointerdown', 1, 70, 80);
+    pointer(c.stick, 'pointermove', 1, 100, 80);
     const roll = sim.cockpitInput.roll;
+    assert.ok(roll > 0.2);
     pointer(c.stick, 'pointerdown', 2, 20, 80);
     pointer(c.stick, 'pointermove', 2, 20, 80);
     assert.equal(sim.cockpitInput.roll, roll);
@@ -124,7 +127,8 @@ for (const reason of ['disable', 'blur', 'hidden', 'orientation', 'overlay', 'pa
     const f = fixture();
     try {
       const { controls: c, pointer, sim, input } = f;
-      pointer(c.stick, 'pointerdown', 1, 106, 116);
+      pointer(c.stick, 'pointerdown', 1, 70, 80);
+    pointer(c.stick, 'pointermove', 1, 110, 120);
       pointer(c.brake, 'pointerdown', 2);
       sim.cockpitInput.throttle2 = 0.6;
       input.update(0.2);
@@ -145,21 +149,69 @@ for (const reason of ['disable', 'blur', 'hidden', 'orientation', 'overlay', 'pa
   });
 }
 
-test('desktop and mouse events do not activate flight controls', () => {
+test('hidden on desktop; when shown, a trackpad or mouse can use them with the primary button only', () => {
   const f = fixture(false);
   try {
     const { controls: c, pointer, sim } = f;
     assert.equal(c.el.hidden, true);
-    pointer(c.stick, 'pointerdown', 1, 106, 116);
+    pointer(c.stick, 'pointerdown', 1, 70, 80);
+    pointer(c.stick, 'pointermove', 1, 110, 120);
     assert.deepEqual(sim.cockpitInput, {});
     f.app.input.settings.touchEnabled = true; c.update();
     assert.equal(c.el.hidden, false);
-    pointer(c.stick, 'pointerdown', 2, 106, 116, 'mouse');
-    pointer(c.throttle, 'pointerdown', 3, 70, 20, 'mouse');
-    assert.deepEqual(sim.cockpitInput, {});
-    assert.equal(sim.pilot.throttle, 0.4);
+    pointer(c.throttle, 'pointerdown', 3, 70, 20, 'mouse', 2);
+    assert.equal(sim.pilot.throttle, 0.4, 'right button ignored');
+    pointer(c.stick, 'pointerdown', 2, 70, 80, 'mouse');
+    pointer(c.stick, 'pointermove', 2, 110, 80, 'mouse');
+    assert.ok(sim.cockpitInput.roll > 0.4, 'iPad trackpad steers the stick');
+    pointer(c.stick, 'pointerup', 2, 110, 80, 'mouse');
+    pointer(c.throttle, 'pointerdown', 4, 70, 50, 'mouse');
+    assert.equal(sim.pilot.throttle, 0.75);
     f.app.input.settings.touchEnabled = false; c.update();
     assert.equal(c.el.hidden, true);
+  } finally { f.cleanup(); }
+});
+
+test('the stick deflects from where the finger lands, with a soft centre', async () => {
+  const { stickResponse, TOUCH_RESPONSES } = await import('../src/input/touch-controls.js');
+  const f = fixture();
+  try {
+    const { controls: c, pointer, sim } = f;
+    pointer(c.stick, 'pointerdown', 1, 120, 30); // landing near the rim
+    assert.equal(sim.cockpitInput.roll || 0, 0, 'no jump on first contact');
+    assert.equal(sim.cockpitInput.pitch || 0, 0);
+    pointer(c.stick, 'pointermove', 1, 125, 30);
+    assert.ok(sim.cockpitInput.roll > 0 && sim.cockpitInput.roll < 0.08, `small finger motion, small input (${sim.cockpitInput.roll})`);
+    pointer(c.stick, 'pointerup', 1);
+  } finally { f.cleanup(); }
+  const r = TOUCH_RESPONSES.normal;
+  assert.deepEqual(stickResponse(1, 1, 100, r), { roll: 0, pitch: 0 }, 'dead zone');
+  assert.ok(stickResponse(20, 0, 100, r).roll < 0.15, 'expo softens the centre');
+  assert.equal(stickResponse(300, 0, 100, r).roll, 1, 'full deflection at the travel');
+  assert.ok(stickResponse(20, 0, 100, TOUCH_RESPONSES.precise).roll < stickResponse(20, 0, 100, TOUCH_RESPONSES.direct).roll);
+});
+
+test('TRIM keeps the attitude: the held pitch becomes trim and the stick re-centres', () => {
+  const f = fixture();
+  try {
+    const { controls: c, pointer, sim, input } = f;
+    let trimmed = 0;
+    sim.command = (name) => { if (name === 'trimHold') { trimmed = sim.pilot.pitch; sim.lastTrimAbsorbed = sim.pilot.pitch; sim.pilot.pitch = 0; } };
+    pointer(c.stick, 'pointerdown', 1, 70, 80);
+    pointer(c.stick, 'pointermove', 1, 70, 110);
+    input.update(0.5);
+    assert.ok(sim.pilot.pitch > 0.2);
+    pointer(c.trim, 'pointerdown', 2);
+    pointer(c.trim, 'pointerup', 2);
+    pointer(c.trim, 'click', 2);
+    assert.ok(trimmed > 0.2, 'trim absorbed the held pitch');
+    assert.equal(sim.cockpitInput.pitch, 0, 'the finger position is the new neutral');
+    pointer(c.stick, 'pointermove', 1, 70, 110);
+    assert.equal(sim.cockpitInput.pitch, 0, 'holding still does not double the input');
+    pointer(c.stick, 'pointermove', 1, 70, 130);
+    assert.ok(sim.cockpitInput.pitch > 0, 'further pull still works');
+    sim.fm.fcs = { mode: 'normal' }; c.update();
+    assert.equal(c.trim.hidden, true, 'fly-by-wire trims itself');
   } finally { f.cleanup(); }
 });
 
@@ -203,7 +255,8 @@ test('reset preserves controls owned by another source and destroy removes handl
   const f = fixture();
   try {
     const { controls: c, pointer, sim } = f;
-    pointer(c.stick, 'pointerdown', 1, 106, 116);
+    pointer(c.stick, 'pointerdown', 1, 70, 80);
+    pointer(c.stick, 'pointermove', 1, 110, 120);
     sim.cockpitInput.pitch = -0.9;
     c.reset();
     assert.equal(sim.cockpitInput.pitch, -0.9);

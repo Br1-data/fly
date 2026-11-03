@@ -3,7 +3,7 @@ const STORAGE_KEY = 'cieli-aperti.input';
 const AXES = ['roll', 'pitch', 'yaw', 'throttle', 'throttle2', 'mixture', 'brakeL', 'brakeR'];
 const BIPOLAR = new Set(['roll', 'pitch', 'yaw']);
 const clamp = (v, lo = -1, hi = 1) => Math.max(lo, Math.min(hi, v));
-const defaults = () => ({ axes: Object.fromEntries(AXES.map((k) => [k, null])), deadzone: 0.05, expo: 0.3, keyboardSensitivity: 1, gamepadEnabled: true, mouseYoke: false });
+const defaults = () => ({ axes: Object.fromEntries(AXES.map((k) => [k, null])), deadzone: 0.05, expo: 0.3, keyboardSensitivity: 1, gamepadEnabled: true, mouseYoke: false, touchResponse: 'normal' });
 const modifiers = (e) => `${e.ctrlKey ? 'Ctrl+' : ''}${e.altKey ? 'Alt+' : ''}${e.shiftKey ? 'Shift+' : ''}${e.code}`;
 // Controls clicked with the mouse are marked by the cockpit: they do not capture flight keys.
 const isField = (el) => !!el && !el.dataset?.pointerFocus && (['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) || el.isContentEditable);
@@ -18,6 +18,7 @@ const BINDINGS = [
   ['Volo', 'Estendi flap', ['F7', 'BracketRight'], 'flaps', 'inc'],
   ['Volo', 'Flap completi', ['F8'], 'flaps', 'full'],
   ['Volo', 'Carrello', ['KeyG'], 'gear'],
+  ['Volo', 'Compensa l’assetto attuale (trim)', ['KeyT'], '@trim-hold'],
   ['Volo', 'Freno di parcheggio', ['Ctrl+Period'], 'parkingBrake'],
   ['Volo', 'Aerofreni', ['Slash'], 'spoilers'],
   ['Volo', 'Arma spoiler', ['Shift+Slash'], 'spoilers', 'arm'],
@@ -161,6 +162,7 @@ export class InputManager {
     this._lookPointer = null;
     this.mouse = { roll: 0, pitch: 0 };
     this.kb = { pitch: 0, roll: 0, yaw: 0 };
+    this.pitchBias = null;
     if (this.sim?.cockpitInput) {
       for (const key of Object.keys(this.sim.cockpitInput)) {
         if (key !== 'throttle2' || resetThrottle) delete this.sim.cockpitInput[key];
@@ -188,6 +190,7 @@ export class InputManager {
       }
       else if (command === 'mixtureKeys') this.sim.command('mixture', e.code === 'F4' ? 1 : 0);
       else if (command === '@views') this.onAction(e.shiftKey ? 'view-prev' : 'view-next');
+      else if (command === '@trim-hold') this.trimHold();
       else if (command === '@mouse-yoke') {
         this.settings.mouseYoke = !this.settings.mouseYoke;
         this.mouse = { roll: 0, pitch: 0 };
@@ -200,6 +203,32 @@ export class InputManager {
       this.keys.add(e.code);
       if (e.code === 'Numpad5') { this.sim.pilot.pitch = 0; this.sim.pilot.roll = 0; this.sim.pilot.yaw = 0; this.mouse = { roll: 0, pitch: 0 }; }
     }
+  }
+
+  /**
+   * Trim to current attitude: the sim turns the pitch being held into trim, and each source
+   * gets a new neutral so the elevator does not double up: the keyboard deflection is
+   * dropped, and a spring-centred gamepad or the mouse yoke fade the absorbed part out as
+   * they return to the centre (hands-off flight stays trimmed).
+   */
+  trimHold() {
+    if (!this.sim?.fm) return;
+    const source = this.settings.mouseYoke && Math.abs(this.mouse.pitch) > 0 ? this.mouse.pitch : this.values.pitch || 0;
+    this.sim.command('trimHold');
+    const absorbed = this.sim.lastTrimAbsorbed || 0;
+    this.kb.pitch = 0;
+    this.pitchBias = Math.abs(source) > 0.02 && Math.sign(source) === Math.sign(absorbed) ? { absorbed, held: source } : null;
+  }
+
+  _biased(value) {
+    const b = this.pitchBias;
+    if (!b) return value;
+    // Back at the centre or across it: the new trim fully holds the attitude.
+    if (Math.abs(value) < 0.02 || Math.sign(value) !== Math.sign(b.held)) {
+      this.pitchBias = null;
+      return value;
+    }
+    return value - b.absorbed * Math.min(1, value / b.held);
   }
 
   _pads() { return this.settings.gamepadEnabled === false ? [] : Array.from(globalThis.navigator?.getGamepads?.() || []).filter(Boolean); }
@@ -266,8 +295,10 @@ export class InputManager {
       }
       // A centred physical controller leaves the pointer-held console available.
       let v = consoleValue(key);
-      if (Math.abs(gamepadValue) > 0) v = gamepadValue;
-      if (Math.abs(mouseValue) > 0) v = mouseValue;
+      let physical = false;
+      if (Math.abs(gamepadValue) > 0) { v = gamepadValue; physical = true; }
+      if (Math.abs(mouseValue) > 0) { v = mouseValue; physical = true; }
+      if (key === 'pitch') v = physical ? this._biased(v) : (this.pitchBias = null, v);
       if (keyboardActive || keyboardBefore !== 0) {
         p[key] = this.kb[key];
         continue;
@@ -284,13 +315,18 @@ export class InputManager {
     if (typeof this.values.mixture === 'number') p.mixture = this.values.mixture;
     p.throttle = clamp(p.throttle + (Number(throttleUp) - Number(throttleDown)) * dt * 0.25, 0, 1);
     p.trimRate = Number(has('Home', 'Numpad7')) - Number(has('End', 'Numpad1'));
+    for (const pad of pads.filter((pad) => pad.mapping === 'standard')) {
+      // D-pad: down trims nose up (like pulling the stick), up trims nose down.
+      p.trimRate += Number(!!pad.buttons[13]?.pressed) - Number(!!pad.buttons[12]?.pressed);
+    }
+    p.trimRate = clamp(p.trimRate);
     const braking = has('Period', 'Space');
     p.brakeL = braking || has('Comma') ? 1 : this.values.brakeL > 0 ? this.values.brakeL : consoleValue('brakeL', 0, 1);
     p.brakeR = braking || has('KeyX') ? 1 : this.values.brakeR > 0 ? this.values.brakeR : consoleValue('brakeR', 0, 1);
     p.reverse = (throttleDown && has('ShiftLeft', 'ShiftRight')) || cockpit.reverse === true;
     const next = new Set();
     for (const pad of pads.filter((pad) => pad.mapping === 'standard')) {
-      const actions = { 1: () => this.sim.command('gear'), 2: () => this.sim.command('flaps', 'inc'), 3: () => this.onAction('view-next'), 8: () => this.onAction('map'), 9: () => this.onAction('menu'), 10: () => this.sim.command('apDisconnect') };
+      const actions = { 1: () => this.sim.command('gear'), 2: () => this.sim.command('flaps', 'inc'), 3: () => this.onAction('view-next'), 8: () => this.onAction('map'), 9: () => this.onAction('menu'), 10: () => this.sim.command('apDisconnect'), 11: () => this.trimHold() };
       pad.buttons.forEach((button, i) => {
         if (!button.pressed) return;
         const id = `${pad.index}:${i}`;
@@ -328,7 +364,8 @@ export class InputManager {
       { group: 'Mouse', label: 'Leve del cockpit', keys: ['Trascina cursore'] },
       { group: 'Mouse', label: 'Cloche, pedaliera e freni nelle console', keys: ['Trascina cloche', 'Tieni premuto il pulsante'] },
       { group: 'Mouse', label: 'Cloche col mouse (attiva con Y)', keys: ['Muovi il puntatore sulla vista 3D'] },
-      { group: 'Touch', label: 'Beccheggio e rollio', keys: ['Trascina la cloche virtuale'] },
+      { group: 'Touch', label: 'Beccheggio e rollio', keys: ['Trascina la cloche virtuale (il neutro è dove appoggi il dito)'] },
+      { group: 'Touch', label: 'Compensa l’assetto attuale', keys: ['TRIM mentre tieni la cloche'] },
       { group: 'Touch', label: 'Potenza', keys: ['Cursore manetta touch'] },
       { group: 'Touch', label: 'Pedaliera e freni', keys: ['Tieni premuti i pulsanti touch'] },
       { group: 'Touch', label: 'Guardarsi intorno', keys: ['Trascina il panorama con un dito'] },
@@ -346,6 +383,8 @@ export class InputManager {
       { group: 'Gamepad standard', label: 'Mappa', keys: ['Back / Select (pulsante 8)'] },
       { group: 'Gamepad standard', label: 'Menu', keys: ['Start / Options (pulsante 9)'] },
       { group: 'Gamepad standard', label: 'Disconnetti autopilota', keys: ['Premi stick sinistro (pulsante 10)'] },
+      { group: 'Gamepad standard', label: 'Trim a cabrare / picchiare', keys: ['Croce giù / su'] },
+      { group: 'Gamepad standard', label: 'Compensa l’assetto attuale', keys: ['Premi stick destro (pulsante 11)'] },
       { group: 'App desktop', label: 'Schermo intero', keys: ['Alt+Invio'] },
     ];
   }

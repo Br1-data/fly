@@ -94,7 +94,8 @@ export const QUICK_GUIDE = [
     steps: [
       'Sugli smartphone la grafica parte in modalità leggera con il pannello compatto; su iPad e tablet in qualità media a 60 fotogrammi al secondo con il pannello completo. Se il dispositivo rallenta, la risoluzione si riduce da sola per mantenere il volo fluido; puoi cambiare livello da Impostazioni.',
       'Su iPad: in Safari tocca Condividi e poi «Aggiungi alla schermata Home» per giocare a schermo intero, senza barre del browser. Con una tastiera collegata la manetta è su = e - e i flap su [ e ], perché la tastiera dell’iPad non ha i tasti F.',
-      'Trascina la cloche circolare in basso a sinistra: verso il basso per cabrare, in alto per picchiare, lateralmente per inclinare le ali. Rilasciando il dito la cloche torna al centro.',
+      'Appoggia il dito sulla cloche circolare in basso a sinistra: il punto in cui lo appoggi è il neutro, quindi non c’è nessuno scatto. Trascina verso il basso per cabrare, in alto per picchiare, lateralmente per inclinare le ali; rilasciando la cloche torna al centro.',
+      'TRIM compensa l’assetto: mentre tieni la cloche in salita o in discesa toccalo con un altro dito, poi rilascia e l’aereo mantiene l’assetto da solo (sull’AX-320 il fly-by-wire lo fa già). In Comandi puoi scegliere la risposta della cloche touch: Precisa, Normale o Diretta.',
       'Scorri la manetta POTENZA a destra. Puoi usare contemporaneamente cloche, pedaliera e freni con dita diverse; la potenza selezionata rimane al rilascio.',
       'Tocca FLAP per avanzare di una posizione: dopo l’ultima si torna a zero. CARRELLO compare solo sui velivoli con carrello retrattile. VISTA cambia visuale e PANNELLO passa da strumenti completi a compatti e nascosti.',
       'Tocca Impianti o Radio per aprire le console; la cloche touch viene sospesa mentre le consulti. Trascina il panorama con un dito per guardarti intorno. Nella mappa puoi usare due dita per lo zoom.',
@@ -140,7 +141,7 @@ export const QUICK_GUIDE = [
     title: 'Mouse, joystick e gamepad',
     steps: [
       'Per guardarti intorno trascina sul mondo 3D con il tasto destro; la rotella cambia lo zoom. Y attiva la cloche col mouse: il centro della vista esterna è la cloche neutra e il riquadro COMANDI mostra la deflessione.',
-      'Con la tastiera la deflessione cresce mentre tieni premuto il tasto: un tocco breve dà una piccola correzione, rilasciando la cloche torna al centro. Num 5 la centra subito.',
+      'Con la tastiera la deflessione cresce mentre tieni premuto il tasto: un tocco breve dà una piccola correzione, rilasciando la cloche torna al centro. Num 5 la centra subito. T compensa l’assetto attuale: tieni la cloche, premi T e rilascia.',
       'Le manopole del cockpit scorrono tenendo premuto − o + (con accelerazione); Maiusc dà passi grandi, anche con la rotella. Clicca sul valore (HDG, ALT, frequenze, QNH) per digitarlo e conferma con Invio.',
       'Dopo un clic su pulsanti e cursori del pannello i tasti tornano al volo: frecce e Spazio non spostano più l’ultimo cursore né ripremono il pulsante.',
       'Dal menu Comandi apri Joystick e gamepad. Collega il dispositivo e premi un pulsante per renderlo visibile al browser; assegna gli assi e verifica il verso della risposta prima del decollo.',

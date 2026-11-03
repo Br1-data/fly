@@ -262,6 +262,26 @@ export class Simulation {
         else sys.fuelSelector = arg;
         break;
       }
+      case 'trimHold': {
+        // "Trim to current": the pitch held on the controls becomes elevator trim, so the
+        // attitude is kept hands-off. The elevator command is unchanged at that instant.
+        this.lastTrimAbsorbed = 0;
+        if (fm.fcs && fm.fcs.mode === 'normal') {
+          this.message('Trim automatico: il fly-by-wire mantiene già l’assetto', 'info', 3);
+          break;
+        }
+        const c = def.controls;
+        const k = c.trimType === 'stab' ? 0.7 : 1 / (c.trimAuthority || 0.35);
+        const before = fm.input.elevTrim;
+        fm.input.elevTrim = clamp(before + (this.pilot.pitch || 0) * k, -1, 1);
+        const absorbed = (fm.input.elevTrim - before) / k;
+        this.lastTrimAbsorbed = absorbed;
+        this.pilot.pitch = (this.pilot.pitch || 0) - absorbed;
+        fm.input.pitch -= absorbed;
+        const limit = Math.abs(fm.input.elevTrim) >= 0.999;
+        this.message(limit ? 'Trim a fondo corsa: tieni ancora un po’ la cloche' : `Trim ${Math.round(fm.input.elevTrim * 100)}%: puoi rilasciare la cloche`, 'info', 2.5);
+        break;
+      }
       case 'parkingBrake':
         sys.parkingBrake = toggle(sys.parkingBrake);
         this.message(sys.parkingBrake ? 'Freno di parcheggio inserito' : 'Freno di parcheggio rilasciato', 'info', 2);

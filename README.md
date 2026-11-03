@@ -105,7 +105,11 @@ ricercabile di 80 termini. Il volo e il timer missione restano fermi durante la 
 ### Smartphone e tablet
 
 La versione web dispone di controlli multitouch: cloche virtuale, manetta, pedaliera e freni
-si usano anche contemporaneamente. I pulsanti FLAP, CARRELLO (quando previsto), VISTA e PANNELLO
+si usano anche contemporaneamente. Il neutro della cloche è il punto in cui appoggi il dito (nessuno
+scatto) e la risposta (Precisa, Normale, Diretta) si sceglie in **Comandi**; **TRIM** trasforma
+il comando tenuto in compensazione, così puoi rilasciare la cloche. Tutti i pulsanti rispondono
+anche mentre un altro dito tiene la cloche; con la tastiera il trim è **T**, sul gamepad la croce
+direzionale (stick destro premuto per compensare). I pulsanti FLAP, CARRELLO (quando previsto), VISTA e PANNELLO
 consentono di volare senza tastiera. Trascina il panorama per guardarti intorno; nella mappa
 allarga o avvicina due dita per lo zoom.
 

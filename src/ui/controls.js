@@ -1,5 +1,6 @@
 // Controls help + joystick / gamepad configuration.
-import { h, button, clear, slider, checkbox } from './dom.js';
+import { h, button, clear, slider, checkbox, select } from './dom.js';
+import { TOUCH_RESPONSES } from '../input/touch-controls.js';
 
 const AXES = [
   { key: 'roll', label: 'Alettoni (rollio)' },
@@ -124,6 +125,12 @@ export class ControlsScreen {
           st.keyboardSensitivity = v;
           inp.saveSettings();
         } }),
+        select({ label: 'Cloche touch (iPad e smartphone)', value: st.touchResponse || 'normal',
+          options: Object.entries(TOUCH_RESPONSES).map(([value, r]) => ({ value, label: `${r.label}${value === 'precise' ? ' — correzioni fini, corsa lunga' : value === 'direct' ? ' — risposta pronta, corsa corta' : ''}` })),
+          onChange: (v) => {
+            st.touchResponse = v;
+            inp.saveSettings();
+          } }),
         checkbox({ label: 'Joystick / gamepad abilitati', checked: st.gamepadEnabled !== false, onChange: (v) => {
           st.gamepadEnabled = v;
           inp.saveSettings();

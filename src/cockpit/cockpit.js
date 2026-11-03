@@ -1,5 +1,5 @@
 // Aircraft instruments, side consoles and pedestal operate on the real simulation state.
-import { h } from '../ui/dom.js';
+import { h, installTouchTaps, touchRange } from '../ui/dom.js';
 import { clamp } from '../core/math.js';
 import { AIRPORTS } from '../world/world-data.js';
 import { deviceClass } from '../core/device.js';
@@ -52,6 +52,7 @@ export class Cockpit {
       for (const event of ['pointerdown', 'pointerup', 'click', 'dblclick', 'contextmenu', 'wheel']) panel.addEventListener(event, (e) => e.stopPropagation());
     }
     this.installFocusRelease();
+    installTouchTaps(this.shell);
     this.canvas.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
     this.releaseHeld = () => {
       for (const key of ['pitch', 'roll', 'yaw', 'brakeL', 'brakeR', 'reverse']) if (this.sim.cockpitInput) delete this.sim.cockpitInput[key];
@@ -195,6 +196,7 @@ export class Cockpit {
   lever(label, read, write, { min = 0, max = 1, step = 0.01, format = (v) => `${Math.round(v * 100)}%`, description = label, className = '' } = {}) {
     const output = h('output');
     const input = h('input', { type: 'range', min, max, step, 'aria-label': label, title: description, oninput: (e) => { write(Number(e.target.value)); output.textContent = format(Number(e.target.value)); this.click('lever'); } });
+    touchRange(input, min, max, step);
     this.readouts.push(() => {
       const v = read(), text = format(v);
       if (document.activeElement !== input && Number(input.value) !== v) input.value = v;
