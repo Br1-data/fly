@@ -46,7 +46,8 @@ export class Autopilot {
 
   engage(sim) {
     const fm = sim.fm;
-    if (fm.onGround || !sim.fm.systems.avionicsPowered) return false;
+    // Helicopters fly with their AFCS (attitude and heading hold), not the autopilot.
+    if (fm.onGround || !sim.fm.systems.avionicsPowered || sim.def?.rotor) return false;
     this.engaged = true;
     this.rollInt = 0;
     this.pitchInt = 0;

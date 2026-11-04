@@ -88,14 +88,14 @@ function onFinal(airport, runway, nm) {
   return { n: end.thrN - end.dirN * nm * NM, e: end.thrE - end.dirE * nm * NM };
 }
 /** Low-level gates: each sits `aglFt` above the terrain and faces the next one. */
-function lowLevel(points, aglFt, maxAglFt) {
+function lowLevel(points, aglFt, maxAglFt, radius = 650) {
   const terrain = getTerrain();
   return points.map(([n, e, name], i) => {
     const [n2, e2] = points[Math.min(i + 1, points.length - 1)];
     const [n1, e1] = i + 1 < points.length ? [n, e] : points[i - 1];
     const heading = (Math.atan2(e2 - e1, n2 - n1) * RAD + 360) % 360;
     const alt = terrain.height(n, e) + aglFt * FT;
-    return { type: 'waypoint', text: `${name}: sotto ${maxAglFt} ft dal suolo`, n, e, alt, radius: 650, horizontal: true, maxAglFt, ring: true, heading };
+    return { type: 'waypoint', text: `${name}: sotto ${maxAglFt} ft dal suolo`, n, e, alt, radius, horizontal: true, maxAglFt, ring: true, heading };
   });
 }
 const bisonteIp = { n: 15000, e: -24000 };
@@ -236,4 +236,47 @@ const FLEET_MISSIONS = [
     [point('Fisso di avvicinamento della 30 a 2500 ft', serenaIf.n, serenaIf.e, 2500, 2000), land('XSRN', '30'), stop]),
 ];
 
-export const MISSIONS = [...CLASSIC, ...FLEET_MISSIONS];
+// ------------------------------------------------------------------ helicopters
+
+const pad = (text, n, e, radius = 20) => ({ type: 'touchdown', text, n, e, radius, duration: 2 });
+const aquilaPad = along(35);
+const serenaEnd = findRunwayEnd('XSRN', '30');
+const serenaPad = { n: serenaEnd.thrN + serenaEnd.dirN * 120, e: serenaEnd.thrE + serenaEnd.dirE * 120 };
+const HELI_KEYS = 'Collettivo: manetta (= / − oppure F3 / F2, leva sul touch). Ciclico: cloche. Pedali: Q / E (o Z / X).';
+
+const HELI_MISSIONS = [
+  mission('heli-hover', 'Primo hovering', 'Fermi a mezz’aria sopra la pista', 'heli', 2, '3–5 min',
+    `Il Colibrì H-6 è in moto sulla pista 07 di Aquila. ${HELI_KEYS}\n\nAlza il collettivo piano finché i pattini si staccano, poi tieni l’elicottero fermo tra 10 e 40 ft, entro 30 m dal punto di partenza, per 15 secondi. La stabilizzazione AFCS mantiene assetto e prua se lasci i comandi. Infine riappoggiati dolcemente sulla piazzola.`,
+    setup('heli', start()),
+    [{ type: 'hover', text: 'Hovering fermo tra 10 e 40 ft per 15 s', n: aquilaPad.n, e: aquilaPad.e, radius: 30, minAglFt: 10, maxAglFt: 40, maxGsKt: 4, duration: 15 },
+      pad('Appoggiati sulla piazzola', aquilaPad.n, aquilaPad.e, 25)]),
+  mission('heli-sanrocco', 'Volo per San Rocco', 'Atterraggio su una piazzola in campagna', 'heli', 3, '6–9 min',
+    `Decolla dalla pista 07 di Aquila, sali ad almeno 500 ft dal suolo e vola verso est: il campo di atterraggio è appena fuori dal paese di San Rocco, segnato da una piazzola gialla con la H.\n\nRallenta per tempo: avvicinati con un angolo dolce, entra in hovering sopra la piazzola e appoggiati entro 20 m dal centro. ${HELI_KEYS}`,
+    setup('heli', start()), [climb(500), pad('Atterra sulla piazzola di San Rocco', -3198, 14594)]),
+  mission('heli-autorotazione', 'Autorotazione', 'Atterrare senza motore', 'heli', 4, '3–5 min',
+    'Sei a circa 1200 ft dal suolo a 70 kt. Dopo pochi secondi la turbina si spegne: abbassa SUBITO il collettivo (manetta al minimo) per non perdere i giri del rotore, tieni 60–80 kt e lascia che l’aria in salita attraverso il disco faccia girare il rotore.\n\nA circa 60 ft dal suolo cabra per frenare la discesa e la velocità, poi alza il collettivo appena prima di toccare. Atterra senza danni ovunque in campagna.',
+    setup('heli', air('XAQU', 6000, 3000, 72, 1600, 70), { failures: [{ system: 'engine', atTime: 6 }] }),
+    [{ type: 'failure', text: 'Entra in autorotazione: 50–85 kt per 5 s', system: 'engine', minSpeed: 50, maxSpeed: 85, duration: 5 },
+      { type: 'touchdown', text: 'Atterra senza danni', n: 6000, e: 3000, radius: 12000, duration: 2 }]),
+  mission('heli-montagna', 'Piazzola in quota', 'Atterraggio a 5000 ft con poca potenza', 'heli', 4, '5–8 min',
+    'Rifornimenti per un rifugio sulle colline orientali, a 5040 ft di quota. L’aria è rarefatta: la turbina rende meno e il rotore ha meno margine, soprattutto in hovering.\n\nAvvicinati controvento con velocità bassa, senza scendere troppo ripido (il rotore può entrare nel proprio flusso, lo «stato di anello vorticoso»). Appoggiati sulla piazzola entro 20 m.',
+    setup('heli', air('XAQU', 2000, 22000, 80, 6000, 80)), [pad('Atterra sulla piazzola in quota', 7895, 29550)]),
+  mission('heli-sar', 'Soccorso in mare', 'Hovering sopra un’imbarcazione', 'heliutility', 4, '6–9 min',
+    'Un’imbarcazione in avaria chiede soccorso a sud-ovest dell’Isola Serena. Con l’Orso UH-6 raggiungi il punto segnato sul mare e mettiti in hovering tra 40 e 120 ft, entro 25 m, per 20 secondi: il verricello recupera i naufraghi.\n\nSul mare non ci sono riferimenti: guarda la piazzola e la velocità al suolo. Poi porta i naufraghi sull’isola e atterra vicino alla soglia della pista 30.',
+    setup('heliutility', air('XSRN', -36500, -29000, 225, 1500, 110)),
+    [{ type: 'hover', text: 'Hovering sopra l’imbarcazione (40–120 ft) per 20 s', n: -41000, e: -36500, radius: 25, minAglFt: 40, maxAglFt: 120, maxGsKt: 4, duration: 20 },
+      pad('Atterra sulla piazzola della pista 30', serenaPad.n, serenaPad.e, 30)]),
+  mission('heli-trasporto', 'Trasporto truppe', 'Una zona di atterraggio nei campi', 'heliutility', 3, '8–12 min',
+    'Porta una squadra da Aquila alla zona di atterraggio vicino a Valfonda, a nord-ovest. Decolla dalla pista 07, sali ad almeno 800 ft e vola a 120–140 kt.\n\nL’Orso è pesante: rallenta con anticipo e arriva in hovering prima di posarti. Atterra entro 25 m dal centro della zona.',
+    setup('heliutility', start()), [climb(800), pad('Atterra nella zona di Valfonda', 12014, -16056, 25)]),
+  mission('heli-noe', 'Volo a bassissima quota', 'Tra le colline sotto 200 ft', 'heliattack', 4, '5–8 min',
+    'Volo tattico «nap of the earth» con il Calabrone: attraversa le cinque porte restando sotto 200 ft dal suolo, seguendo il terreno. Le porte sono a circa 80 ft dalle colline.\n\nIl rotore rigido risponde subito: comandi piccoli e anticipati. Dopo l’ultima porta atterra sulla piazzola in riva al Lago Azzurro.',
+    setup('heliattack', air('XAQU', 1500, 1500, 100, 650, 100)),
+    [...lowLevel([[-1000, 6000, 'Porta 1'], [-2500, 10500, 'Porta 2'], [-3000, 15000, 'Porta 3'], [-6000, 19000, 'Porta 4'], [-8500, 23500, 'Porta 5']], 80, 200, 180),
+      pad('Atterra sulla piazzola del lago', -8999, 24981, 25)]),
+  mission('heli-pinnacolo', 'Atterraggio su un picco', 'Una cresta a 4800 ft', 'heliattack', 5, '4–7 min',
+    'Un osservatore va lasciato su una cresta a 4770 ft a sud di Montecervo. Attorno il terreno scende ripido: il vento e la mancanza di riferimenti rendono l’avvicinamento difficile.\n\nArriva leggermente più alto, rallenta in hovering sopra la cresta e scendi in verticale. Appoggiati entro 15 m dal centro della piazzola.',
+    setup('heliattack', air('XMNT', 28000, 30000, 140, 6500, 90)), [pad('Atterra sulla cresta', 23122, 36496, 15)]),
+];
+
+export const MISSIONS = [...CLASSIC, ...FLEET_MISSIONS, ...HELI_MISSIONS];

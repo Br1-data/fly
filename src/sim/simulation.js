@@ -91,6 +91,7 @@ export class Simulation {
     fm.systems.infiniteFuel = this.settings.unlimitedFuel;
     fm.updateMass();
     for (const e of fm.engines) e.reset(running, this.atm.sample(0).T);
+    fm.rotor?.reset(running);
     // Unstable fighters cannot be flown without their flight-control computers.
     if (fm.fcs) fm.fcs.mode = this.settings.fbwNormalLaw || def.fbw.law === 'fighter' ? 'normal' : 'direct';
     this.engineMaster = fm.engines.map(() => running);
@@ -138,7 +139,19 @@ export class Simulation {
       alt = (s.altitudeFt ?? 3000) * FT;
       speed = (s.speedKt ?? def.speeds.cruise) * KT;
     }
-    if (inAir) {
+    if (inAir && fm.rotor) {
+      // Helicopters: full six-axis trim (attitude, collective, cyclic, pedals) in level flight.
+      const tas = speed / Math.sqrt(this.atm.sample(alt).sigma);
+      fm.place({ n, e, alt, heading: hdg, speed: tas });
+      const r = fm.trimHeli(tas);
+      if (running) fm.settleRotorEngines();
+      this.pilot.throttle = r.collective;
+      fm.q.setFromEuler(r.phi * DEG, r.theta * DEG, hdg * DEG);
+      fm.vel.set(Math.cos(hdg * DEG) * tas, Math.sin(hdg * DEG) * tas, 0);
+      fm.systems.parkingBrake = false;
+      this.atm.windAt(1000, alt, fm.wind);
+      fm.vel.add(fm.wind);
+    } else if (inAir) {
       fm.place({ n, e, alt, heading: hdg, speed });
       const gamma = s.type === 'final' ? -3 : 0;
       // air speed -> true airspeed (approx.)
@@ -630,7 +643,7 @@ export class Simulation {
     const inp = fm.input;
     fm.apEngaged = ap.engaged;
     let yaw = p.yaw;
-    if (this.settings.autoRudder) {
+    if (this.settings.autoRudder && !def.rotor) {
       if (fm.onGround) yaw = clamp(yaw + p.roll * 0.8, -1, 1);
       else yaw = clamp(yaw + fm.beta * 6, -1, 1);
     }
@@ -652,6 +665,7 @@ export class Simulation {
     if (p.rudTrimRate) inp.rudTrim = clamp(inp.rudTrim + p.rudTrimRate * 0.2 * dt, -1, 1);
     if (p.ailTrimRate) inp.ailTrim = clamp(inp.ailTrim + p.ailTrimRate * 0.2 * dt, -1, 1);
     inp.brakeL = p.brakeL;
+    inp.collective = clamp(p.throttle, 0, 1);
     inp.brakeR = p.brakeR;
 
     // ---- engines ----
@@ -708,7 +722,7 @@ export class Simulation {
     for (const e of this.ap.events) this.events.push({ type: 'ap', what: e });
     this.ap.events.length = 0;
     // altitude callouts (radio altimeter, airliner/jet)
-    if (this.def.panel !== 'ga' && !fm.onGround && fm.vs < -0.5 && sys.avionicsPowered) {
+    if (this.def.panel !== 'ga' && !this.def.rotor && !fm.onGround && fm.vs < -0.5 && sys.avionicsPowered) {
       const ra = fm.aglFt;
       const marks = [2500, 1000, 500, 400, 300, 200, 100, 50, 40, 30, 20, 10];
       for (const m of marks) {

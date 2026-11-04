@@ -248,6 +248,14 @@ try {
   l = await layout();
   check('iPhone 16 orizzontale (Safari): tutti i comandi visibili, HUD tra le colonne', l.onScreen && l.hudClear && !l.overflow);
   await iphone.screenshot({ path: path.join(output, 'iphone-landscape.png') });
+  // "Strumenti" can hide the panel completely; a button must always bring it back.
+  await iphone.evaluate(() => { const c = window.__cieli.cockpit; c.setMode('mini'); c.cycleMode(); });
+  const hiddenState = await iphone.evaluate(() => ({ mode: window.__cieli.cockpit.mode, shown: !document.querySelector('.ca-restore').hidden }));
+  const restore = await iphone.locator('.ca-restore').boundingBox();
+  if (restore) await iphone.touchscreen.tap(restore.x + restore.width / 2, restore.y + restore.height / 2);
+  await iphone.waitForTimeout(300);
+  const back = await iphone.evaluate(() => window.__cieli.cockpit.mode);
+  check('iPhone: pannello nascosto e ripristinabile con un tocco', hiddenState.mode === 'hidden' && hiddenState.shown && restore && restore.y >= 0 && back !== 'hidden');
   await phone16.close();
   check('iPhone: nessun errore', errors.length === 0);
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ success: true, checks, errors }, null, 2));

@@ -219,9 +219,9 @@ export function createAircraft(def) {
   const built = builder(group, mats, def);
   const { propeller = null, propDisc = null, wing, stab } = built;
   const propellers = built.propellers || (propeller ? [{ propeller, propDisc, engine: 0, spin: 1 }] : []);
-  const fixedGear = !def.controls.retractableGear;
+  const fixedGear = !def.controls.retractableGear && !def.rotor;
   // Undercarriage: struts from the structure down to the actual contact points.
-  for (const leg of def.gear) {
+  for (const leg of built.skids ? [] : def.gear) {
     const p = bodyToModel(...leg.pos);
     const twin = def.id === 'airliner' || built.twinWheels;
     const width = leg.radius * (twin ? 0.7 : 0.75);
@@ -263,7 +263,7 @@ export function createAircraft(def) {
   const large = def.id === 'airliner' || isLarge(def);
   const surfaceMat = built.surfaces?.material || (large ? mats.grey : def.id === 'jet' ? mats.accent : mats.white);
   const depth = built.surfaces || { aileron: large ? 0.75 : 0.3, flap: large ? 1.0 : 0.36, elevator: large ? 1.0 : 0.34 };
-  for (const side of [-1, 1]) {
+  for (const side of built.noControls ? [] : [-1, 1]) {
     control('aileron', wing, side * span * 0.36, span * 0.17, depth.aileron, -side, surfaceMat);
     control('flaps', wing, side * span * (large ? 0.2 : 0.18), span * (large ? 0.18 : 0.2), depth.flap, 0.7, surfaceMat);
     control('elevator', stab, side * stab.halfSpan * 0.48, stab.halfSpan * 0.9, depth.elevator, -1, surfaceMat);
@@ -292,7 +292,7 @@ export function createAircraft(def) {
   group.traverse((o) => {
     if (o.material) materials.add(o.material);
   });
-  group.userData = { gear, propeller, propDisc, propellers, flames: built.flames || [], lights, controls, glow, materials: [...materials] };
+  group.userData = { gear, propeller, propDisc, propellers, flames: built.flames || [], rotors: built.rotors || [], lights, controls, glow, materials: [...materials] };
   return group;
 }
 

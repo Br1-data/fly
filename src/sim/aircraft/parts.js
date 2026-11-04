@@ -115,3 +115,34 @@ export function tanks(capacity, wingY, centre = 0) {
     ...(centre ? [{ name: 'Fusoliera', capacity: centre, y: 0 }] : []),
   ];
 }
+
+/** Fixed-wing control fields a helicopter does not use (kept numeric for shared code). */
+export function heliControls(extra = {}) {
+  return {
+    elevatorUp: 1, elevatorDown: 1, aileron: 1, rudder: 1, surfaceRate: 50, trimType: 'tab', trimAuthority: 0.3,
+    flapDetents: [{ name: '—', flaps: 0 }], flapRate: 0.1, flapsHydraulic: false, retractableGear: false, spoilers: false,
+    steerHighSpeedFrac: 1, steerBlendLo: 5, steerBlendHi: 20, ...extra,
+  };
+}
+
+/** Skid landing gear: four sliding contacts. */
+export function skids({ x0, x1, y, z, k = 60000, c = 6000 }) {
+  return [[x0, -y, 'skid anteriore sinistro'], [x0, y, 'skid anteriore destro'], [x1, -y, 'skid posteriore sinistro'], [x1, y, 'skid posteriore destro']]
+    .map(([x, yy, name]) => ({ name, pos: [x, yy, z], travel: 0.07, k, c, radius: 0.05, muRoll: 0.5, muSide: 0.6 }));
+}
+
+/** Structure contacts of a helicopter, including the main and tail rotor discs. */
+export function heliContacts({ nose, tail, belly, hub, radius, tailRotor, extra = [] }) {
+  const [hx, , hz] = hub;
+  return [
+    { name: 'muso', pos: [nose, 0, belly * 0.5] },
+    { name: 'trave di coda', pos: [tail, 0, belly * 0.2], critical: false },
+    { name: 'ventre', pos: [0, 0, belly] },
+    { name: 'pale del rotore', pos: [hx + radius, 0, hz] },
+    { name: 'pale del rotore', pos: [hx - radius, 0, hz] },
+    { name: 'pale del rotore', pos: [hx, radius, hz] },
+    { name: 'pale del rotore', pos: [hx, -radius, hz] },
+    { name: 'rotore di coda', pos: tailRotor },
+    ...extra,
+  ];
+}

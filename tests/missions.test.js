@@ -31,7 +31,7 @@ test('every mission has a valid simulation setup, goals, marker geometry and che
     assert.equal(m.setup.aircraft, m.aircraft, m.id);
     for (const o of m.objectives) {
       if (o.type === 'land') assert.ok(findRunwayEnd(o.airport, o.runway), `${m.id}: ${o.airport} ${o.runway}`);
-      if (o.type === 'waypoint') assert.ok(o.alt - terrain.height(o.n, o.e) > (o.maxAglFt ? 100 : 250), `${m.id}: ${o.text} too close to the ground`);
+      if (o.type === 'waypoint') assert.ok(o.alt - terrain.height(o.n, o.e) > (o.maxAglFt ? 15 : 250), `${m.id}: ${o.text} too close to the ground`);
     }
     const sim = new Simulation().setup(m.setup);
     const r = new MissionRunner(m, sim);

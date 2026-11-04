@@ -12,7 +12,7 @@ const START_TYPES = [
   { value: 'final', label: 'Finale' },
 ];
 
-const AIRCRAFT_ICON = { trainer: '🛩', aerobatic: '🛩', twin: '🛩', bizjet: '✈', airliner: '✈', turboprop: '🛩', jet: '🛦', warbird: '🛩', transport: '✈', fighter: '🛦', eurofighter: '🛦' };
+const AIRCRAFT_ICON = { trainer: '🛩', aerobatic: '🛩', twin: '🛩', bizjet: '✈', airliner: '✈', turboprop: '🛩', jet: '🛦', warbird: '🛩', transport: '✈', fighter: '🛦', eurofighter: '🛦', heli: '🚁', heliutility: '🚁', heliattack: '🚁' };
 const ROLES = [
   { value: 'all', label: 'Tutti' },
   { value: 'civil', label: 'Civili' },

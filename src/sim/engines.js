@@ -329,7 +329,12 @@ export class JetEngine {
     const sigma = env.rho / RHO0;
     const M = env.mach;
     let T;
-    if (p.prop) {
+    if (p.shaft) {
+      // Turboshaft (helicopters): shaft power to the main gearbox, no jet thrust. The
+      // rotor sets the output rpm.
+      this._shaftPower = p.shaft.power * tf * Math.pow(sigma, p.densityExp);
+      T = 0;
+    } else if (p.prop) {
       // Turboprop: the gas generator delivers shaft power; the propeller turns it into
       // thrust = P·η / V, capped by its static thrust. Thrust falls with airspeed.
       const V = Math.max(M * Math.sqrt(401.9 * amb), 1);
@@ -358,7 +363,7 @@ export class JetEngine {
     if (this.running) {
       const tsfc = p.tsfc0 + p.tsfcMach * M; // lb/(lbf h)
       const reheat = this._abThrust || 0;
-      const ff = p.prop ? this._shaftPower * (p.prop.bsfc || 8.5e-8)
+      const ff = p.prop || p.shaft ? this._shaftPower * ((p.prop || p.shaft).bsfc || 8.5e-8)
         : (Math.abs(T) - reheat) * tsfc * 2.832e-5 + reheat * (p.afterburner?.tsfc || 2) * 2.832e-5;
       this.fuelFlow = Math.max(ff, p.ffIdle * (0.5 + 0.5 * sigma));
     } else if (this.startPhase === 'light') this.fuelFlow = p.ffIdle * 0.6;

@@ -30,6 +30,7 @@ test('the hangar has civil and military aircraft with unique ids and complete da
 });
 
 for (const def of AIRCRAFT_LIST) {
+  if (!def.rotor) {
   test(`${def.name}: stall speed and top speed match its class`, () => {
     const vs1 = minTrimIas(def.id);
     assert.ok(Math.abs(vs1 - def.speeds.vs1) < Math.max(12, def.speeds.vs1 * 0.2), `Vs1 ${vs1} vs ${def.speeds.vs1}`);
@@ -86,6 +87,8 @@ for (const def of AIRCRAFT_LIST) {
     assert.ok(Math.abs(fm.roll) < 10 && fm.pitch > -8 && fm.pitch < 14, `attitude ${fm.pitch} / ${fm.roll}`);
     assert.ok(fm.vs < 0 && fm.vs > -8, `descent ${fm.vs} m/s`);
   });
+
+  }
 
   test(`${def.name}: cold & dark autostart runs every engine`, () => {
     const sim = newSim({ aircraft: def.id, start: { type: 'parking', airport: 'XAQU' }, coldDark: true });

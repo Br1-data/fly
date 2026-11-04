@@ -7,6 +7,7 @@ import { KT, FT } from '../core/units.js';
 import { createEngine } from './engines.js';
 import { LandingGear } from './gear.js';
 import { Systems } from './systems.js';
+import { Rotor, solveLinear } from './rotor.js';
 import { impactPressure, casFromQc, indicatedAltitude, P0 } from './atmosphere.js';
 
 /** Supersonic designs: transonic drag rise peaking just above Mach 1, easing off beyond it. */
@@ -121,7 +122,8 @@ export class FlightModel {
     this.wingSpan = def.wing.span;
     this.wingChord = def.wing.chord;
     // pilot / autopilot command inputs
-    this.input = { pitch: 0, roll: 0, yaw: 0, elevTrim: 0, ailTrim: 0, rudTrim: 0, brakeL: 0, brakeR: 0 };
+    this.input = { pitch: 0, roll: 0, yaw: 0, elevTrim: 0, ailTrim: 0, rudTrim: 0, brakeL: 0, brakeR: 0, collective: 0 };
+    this.rotor = def.rotor ? new Rotor(def) : null;
     // actual surface deflections
     this.defl = { elevator: 0, aileron: 0, rudder: 0, stab: 0, spoilerL: 0, spoilerR: 0 };
     this.nosewheelSteer = 0;
@@ -129,7 +131,7 @@ export class FlightModel {
     this.brakeRight = 0;
     this.pilotBrake = 0;
     this.epsLag = 0;
-    this.fcs = def.fbw ? { mode: 'normal', pitchInt: 0, rollInt: 0, bankHold: 0, autoTrim: true, flare: false } : null;
+    this.fcs = def.fbw || def.rotor ? { mode: 'normal', pitchInt: 0, rollInt: 0, bankHold: 0, autoTrim: true, flare: false } : null;
     this.env = { T: 288, p: P0, rho: 1.225, a: 340, sigma: 1 };
     this.wind = new V3();
     this.vAir = new V3(); // body-frame air-relative velocity
@@ -253,7 +255,11 @@ export class FlightModel {
       yaw = inp.yaw;
 
     let elevCmd, ailCmd, rudCmd;
-    if (this.fcs && this.fcs.mode === 'normal') {
+    if (this.rotor) {
+      // Helicopters: cyclic, collective and pedals drive the rotors (AFCS in rotor.js).
+      this.rotor.controls(dt, this, pitch, roll, yaw);
+      elevCmd = ailCmd = rudCmd = 0;
+    } else if (this.fcs && this.fcs.mode === 'normal') {
       ({ elevCmd, ailCmd, rudCmd } = this.flyByWire(dt, pitch, roll, yaw));
     } else {
       elevCmd = clamp(pitch + (c.trimType === 'stab' ? 0 : inp.elevTrim * c.trimAuthority), -1, 1);
@@ -555,6 +561,8 @@ export class FlightModel {
       }
     }
 
+    if (this.rotor) this.rotor.addForces(this, F, M);
+
     // wing CL and downwash (with lag for alpha-dot damping)
     const qS = 0.5 * rho * V * V * this.wingArea;
     this.wingCL = qS > 1 ? wingLift / qS : 0;
@@ -600,7 +608,8 @@ export class FlightModel {
     sys.update(dt, this);
     this.updateControls(dt);
 
-    // engines
+    // engines (a helicopter's turboshafts follow the rotor governor, not the lever)
+    if (this.rotor) for (const e of this.engines) e.throttle = this.rotor.gov;
     const V = this.vAir.len();
     const humidity = clamp(0.4 + this.cloudDensity * 0.6 + this.precip * 0.5, 0, 1);
     for (let i = 0; i < this.engines.length; i++) {
@@ -612,6 +621,7 @@ export class FlightModel {
       }
     }
 
+    if (this.rotor) this.rotor.step(dt, this);
     // forces
     this.computeAero();
     this.epsLag = approach(this.epsLag, this._epsTarget, dt, (def.tailArm || 5) / Math.max(V, 10));
@@ -733,8 +743,13 @@ export class FlightModel {
       this.maxG = Math.max(this.maxG, this.nz);
       this.minG = Math.min(this.minG, this.nz);
     }
+    // helicopters: dynamic rollover or a rotor strike on the ground
+    if (this.rotor && this.onGround && this.rotor.omega > 0.3 * this.rotor.omega0 && (Math.abs(this.roll) > 30 || Math.abs(this.pitch) > 28)) {
+      this.crash('Ribaltamento dinamico: le pale del rotore hanno colpito il suolo');
+      return;
+    }
     // structural failure
-    if (this.nz > L.gPos * 1.5 || this.nz < L.gNeg * 1.5) this.crash('Cedimento strutturale: fattore di carico eccessivo (' + this.nz.toFixed(1) + ' g)');
+    if ((!this.rotor || !this.onGround) && (this.nz > L.gPos * 1.5 || this.nz < L.gNeg * 1.5)) this.crash('Cedimento strutturale: fattore di carico eccessivo (' + this.nz.toFixed(1) + ' g)');
     if (this.iasKt > L.vne * 1.25 || this.mach > (L.mmo || 9) + 0.12) this.crash('Cedimento strutturale: velocità oltre i limiti');
     if (this.systems.flaps > 0.05 && this.iasKt > this._currentVfe() * 1.25) this.damage.flapsDamaged = true;
     if (this.gear.position > 0.05 && def.controls.retractableGear && this.iasKt > L.vle * 1.3) this.damage.gearDamaged = true;
@@ -798,6 +813,87 @@ export class FlightModel {
    * Trim for straight & level (or given flight path angle) flight at true airspeed V.
    * Solves for alpha, elevator trim and throttle. Returns {ok, alpha, trim, throttle}.
    */
+  /**
+   * Helicopter trim for steady level flight at true airspeed V (V = 0: hover): solves
+   * pitch and bank attitude, collective, longitudinal and lateral cyclic and pedal so
+   * that all forces and moments balance, then hands the solution to the AFCS.
+   */
+  trimHeli(V = 0) {
+    const r = this.rotor, heading = this.heading * DEG;
+    r.omega = r.omega0;
+    const W = this.mass * G0, L = W * r.p.radius;
+    let x = [0.03, 0, 0.5, 0, 0, 0];
+    const residual = (xx) => {
+      const [th, ph, co, a1, b1, pd] = xx;
+      r.override = { collective: co, a1c: a1, b1c: b1, pedal: pd };
+      this.q.setFromEuler(ph, th, heading);
+      this.q.toEuler(this.euler);
+      this.vel.set(Math.cos(heading) * V, Math.sin(heading) * V, 0);
+      this.omega.zero();
+      this.atm.sample(-this.pos.z, this.env);
+      this.wind.zero();
+      this.q.rotateInv(this.vel, this.vAir);
+      for (let k = 0; k < 4; k++) this.computeAero();
+      tmp2.set(0, 0, W);
+      this.q.rotateInv(tmp2, tmp2);
+      const F = this.fBody, M = this.mBody;
+      return [(F.x + tmp2.x) / W, (F.y + tmp2.y) / W, (F.z + tmp2.z) / W, M.x / L, M.y / L, M.z / L];
+    };
+    const lim = [[-0.6, 0.6], [-0.5, 0.5], [0, 1], [-r.p.cyclicMax, r.p.cyclicMax], [-r.p.cyclicMax, r.p.cyclicMax], [-1, 1]];
+    const maxStep = [0.08, 0.08, 0.1, 0.02, 0.02, 0.15];
+    let ok = false;
+    // Continuation: march from the hover up to V, each solution seeding the next.
+    const target = V;
+    const speeds = [];
+    for (let v = 0; v < target; v += 8) speeds.push(v);
+    speeds.push(target);
+    for (const vs of speeds) {
+    V = vs;
+    ok = false;
+    for (let it = 0; it < 40; it++) {
+      const r0 = residual(x);
+      const err = r0.reduce((s, v) => s + Math.abs(v), 0);
+      if (err < 2e-5) { ok = true; break; }
+      const J = [];
+      for (let j = 0; j < 6; j++) {
+        const xp = x.slice();
+        xp[j] += 1e-4;
+        const rp = residual(xp);
+        J.push(rp.map((v, i) => (v - r0[i]) / 1e-4));
+      }
+      const A = r0.map((_, i) => J.map((col) => col[i]));
+      const dx = solveLinear(A, r0.map((v) => -v));
+      if (!dx || dx.some((v) => !Number.isFinite(v))) break;
+      x = x.map((v, j) => clamp(v + clamp(dx[j], -maxStep[j], maxStep[j]), lim[j][0], lim[j][1]));
+      if (it === 39) ok = err < 1e-3;
+    }
+    }
+    residual(x);
+    r.override = null;
+    const [theta, phi, collective, a1c, b1c, pedal] = x;
+    Object.assign(r.ctl, { collective, a1c, b1c, pedal });
+    Object.assign(r.afcs, { thetaHold: theta, phiTrim: phi, psiHold: heading, qInt: a1c, pInt: b1c, rInt: pedal, holding: true, holdingYaw: true });
+    this.input.collective = collective;
+    this._derive();
+    return { ok, theta: theta * RAD, phi: phi * RAD, collective, a1c, b1c, pedal, power: r.power };
+  }
+
+  /** Brings running turboshafts to the power the rotor needs at 100 % NR (start in flight). */
+  settleRotorEngines() {
+    const r = this.rotor;
+    if (!r) return;
+    this.atm.sample(-this.pos.z, this.env);
+    const env = { rho: this.env.rho, p: this.env.p, T: this.env.T, mach: this.tas / this.env.a, onGround: this.onGround };
+    for (let k = 0; k < 600; k++) {
+      for (const e of this.engines) {
+        e.throttle = r.gov;
+        e.step(0.05, env);
+      }
+      r.step(0.05, this);
+      r.omega = r.omega0;
+    }
+  }
+
   /** Aileron and rudder trim cancelling the steady roll and yaw moments (torque, slipstream). */
   trimLateral() {
     const c = this.def.controls;

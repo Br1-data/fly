@@ -470,6 +470,150 @@ function buildTransport(group, mats) {
   return { wing, stab, wingY: 2.15, propellers, twinWheels: true, surfaces: { aileron: 0.8, flap: 1.3, elevator: 1.1, material: grey } };
 }
 
+// ------------------------------------------------------------------ helicopters
+
+/** Rotor: blades on a spinning hub, a blur disc, and an outer group the renderer tilts. */
+function rotor(group, mats, { pos, radius, blades, chord, axis = 'y', material = mats.dark, engine = 0, ratio = 1, side = 0 }) {
+  const tilt = new THREE.Group();
+  tilt.position.copy(pos);
+  const spin = new THREE.Group();
+  tilt.add(spin);
+  const set = new THREE.Group();
+  for (let i = 0; i < blades; i++) {
+    const arm = new THREE.Group();
+    arm.rotation.y = (i / blades) * TAU;
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(chord, chord * 0.08, radius * 0.93), material);
+    blade.position.z = radius * 0.535;
+    blade.rotation.z = 0.08;
+    arm.add(blade);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(chord * 1.01, chord * 0.085, radius * 0.06), mats.yellow);
+    tip.position.z = radius * 0.97;
+    arm.add(tip);
+    set.add(arm);
+  }
+  spin.add(set);
+  spin.userData.blades = set;
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.05, radius * 0.06, radius * 0.05, 14), mats.metal);
+  spin.add(hub);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 48), new THREE.MeshBasicMaterial({ color: 0x1e2226, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+  disc.rotation.x = -Math.PI / 2;
+  tilt.add(disc);
+  if (axis === 'x') tilt.rotation.z = Math.PI / 2 * side;
+  group.add(tilt);
+  return { tilt, spin, blades: set, disc, axis, ratio, main: axis === 'y', engine };
+}
+
+/** Skid landing gear: two tubes with upturned toes and cross tubes to the cabin. */
+function skidGear(group, mats, { x, y, z0, z1, top }) {
+  for (const side of [-1, 1]) {
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, z1 - z0, 10), mats.metal);
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(side * x, y, (z0 + z1) / 2);
+    group.add(tube);
+    rod(group, new THREE.Vector3(side * x, y, z0), new THREE.Vector3(side * x, y + 0.18, z0 - 0.3), 0.045, mats.metal, 10);
+    for (const z of [z0 + 0.35, z1 - 0.35]) rod(group, new THREE.Vector3(side * x, y, z), new THREE.Vector3(side * x * 0.55, top, z), 0.04, mats.metal, 8);
+  }
+}
+
+function heliLivery({ z0, z1, radius, base, stripe, belly, glass, text, roundelAt, width = 1024 }) {
+  return paintLivery({
+    width, height: 128, z0, z1, radius, base,
+    painter: (p) => {
+      if (belly) p.belly(z0, z1, -0.45, belly);
+      if (stripe) p.sides(z0 + (z1 - z0) * 0.12, z1, -0.22, -0.1, stripe);
+      for (const [a, b, h0, h1] of glass) p.sides(a, b, h0, h1, '#0d1a22', true);
+      p.panels([z0 + 0.6, z0 + 1.6, z0 + 2.8, z0 + 4.2], [0.75, -0.6], 'rgba(20,25,30,0.22)');
+      if (text) p.text(text[0], text[1], text[2], text[3], text[4] || '#1b2127');
+      if (roundelAt !== undefined) paintRoundel(p, roundelAt, 0.1, radius * 0.4, width, 128, z0, z1, radius);
+    },
+  });
+}
+
+function buildHeli(group, mats) {
+  const z0 = -2.45, z1 = 6.2;
+  const livery = heliLivery({ z0, z1, radius: 0.72, base: '#f3f4f5', stripe: '#c8262e', belly: '#d9dde0',
+    glass: [[-2.35, -1.0, -0.1, 0.95], [-1.0, 0.2, 0.15, 0.78]], text: ['I-COLB', 3.6, 0.1, 26, '#c8262e'] });
+  const paint = paintMaterial(livery, 0xf3f4f5);
+  mesh(group, loftGeometry([
+    [-2.45, 0.05, 0.05, -0.05], [-2.3, 0.45, 0.5, -0.05], [-1.9, 0.62, 0.72, 0.0], [-1.2, 0.68, 0.8, 0.05], [-0.2, 0.68, 0.82, 0.1],
+    [0.6, 0.62, 0.78, 0.15], [1.2, 0.45, 0.55, 0.3], [1.8, 0.22, 0.24, 0.45], [3.5, 0.17, 0.18, 0.5], [5.5, 0.13, 0.14, 0.55], [6.2, 0.1, 0.12, 0.58],
+  ], 30), paint);
+  // Glazed nose bubble over the painted windows, engine cowling and mast.
+  mesh(group, loftGeometry([[-2.42, 0.05, 0.05, 0.05], [-2.25, 0.4, 0.42, 0.12], [-1.7, 0.58, 0.6, 0.2], [-1.1, 0.6, 0.62, 0.25], [-0.9, 0.3, 0.3, 0.3]], 24), mats.glass);
+  ellipsoid(group, [0.42, 0.32, 1.25], [0, 0.95, 0.4], mats.white);
+  ellipsoid(group, [0.12, 0.12, 0.2], [0, 0.98, 1.6], mats.dark, 10);
+  rod(group, new THREE.Vector3(0, 1.0, -0.1), new THREE.Vector3(0, 1.62, -0.1), 0.07, mats.metal, 10);
+  const stab = wingShape({ halfSpan: 1.0, rootChord: 0.55, tipChord: 0.45, centreZ: 4.4, sweep: 0, y: 0.5, thick: 0.1 });
+  addMirrored(group, stab.geometry, mats.white);
+  finSurface(group, mats.white, { y: 0.4, z: 5.4, chord: 0.9 }, { y: 1.4, z: 6.0, chord: 0.5 });
+  finSurface(group, mats.white, { y: 0.45, z: 5.6, chord: 0.6 }, { y: -0.25, z: 5.9, chord: 0.4 });
+  skidGear(group, mats, { x: 1.0, y: -1.12, z0: -1.25, z1: 1.15, top: -0.6 });
+  const rotors = [
+    rotor(group, mats, { pos: new THREE.Vector3(0, 1.66, -0.1), radius: 5.08, blades: 2, chord: 0.33 }),
+    rotor(group, mats, { pos: new THREE.Vector3(-0.22, 0.65, 6.05), radius: 0.79, blades: 2, chord: 0.12, axis: 'x', ratio: 6.4, side: 1 }),
+  ];
+  return { stab, rotors, noControls: true, skids: true };
+}
+
+function buildHeliUtility(group, mats) {
+  const z0 = -4.5, z1 = 10.3;
+  const livery = heliLivery({ z0, z1, radius: 1.15, base: '#4b5339', belly: '#434a33',
+    glass: [[-4.3, -3.0, -0.05, 0.9], [-3.0, -2.2, 0.2, 0.7], [-1.2, -0.4, 0.15, 0.55]], text: ['66-02', 6.5, 0.15, 30, '#1c1f16'], roundelAt: 1.5, width: 1536 });
+  const paint = paintMaterial(livery, 0x4b5339);
+  const olive = material(0x495136, 0.7, 0.1);
+  mesh(group, loftGeometry([
+    [-4.5, 0.05, 0.05, -0.2], [-4.3, 0.6, 0.55, -0.2], [-3.6, 1.0, 0.95, 0.0], [-2.6, 1.2, 1.15, 0.1], [-1.0, 1.25, 1.2, 0.1], [1.8, 1.25, 1.2, 0.1],
+    [3.2, 1.0, 1.0, 0.25], [4.6, 0.55, 0.55, 0.6], [7.0, 0.38, 0.38, 0.85], [9.2, 0.3, 0.35, 1.1], [10.3, 0.22, 0.3, 1.3],
+  ], 32), paint);
+  // Engines and gearbox fairing on the cabin roof, mast and hub.
+  ellipsoid(group, [0.95, 0.42, 1.8], [0, 1.35, 0.3], olive);
+  for (const side of [-1, 1]) ellipsoid(group, [0.38, 0.36, 1.6], [side * 0.72, 1.4, 1.0], olive);
+  rod(group, new THREE.Vector3(0, 1.5, -0.1), new THREE.Vector3(0, 2.0, -0.1), 0.12, mats.metal, 10);
+  const stab = wingShape({ halfSpan: 2.2, rootChord: 1.0, tipChord: 0.9, centreZ: 9.4, sweep: 0, y: 0.75, thick: 0.1 });
+  addMirrored(group, stab.geometry, olive);
+  finSurface(group, olive, { y: 1.0, z: 8.8, chord: 1.6 }, { y: 2.9, z: 9.6, chord: 1.0 });
+  for (const side of [-1, 1]) roundel(group, [side * 1.27, 0.2, -0.2], 0.4, [0, side * Math.PI / 2, 0]);
+  const rotors = [
+    rotor(group, mats, { pos: new THREE.Vector3(0, 2.02, -0.1), radius: 8.18, blades: 4, chord: 0.53 }),
+    rotor(group, mats, { pos: new THREE.Vector3(0.28, 1.65, 9.9), radius: 1.68, blades: 4, chord: 0.22, axis: 'x', ratio: 4.6, side: -1 }),
+  ];
+  return { stab, rotors, noControls: true };
+}
+
+function buildHeliAttack(group, mats) {
+  const z0 = -4.9, z1 = 7.7;
+  const livery = heliLivery({ z0, z1, radius: 0.7, base: '#5b6352', belly: '#6b7262',
+    glass: [[-3.3, -2.5, 0.25, 0.95], [-2.4, -1.4, 0.35, 0.98]], text: ['EI-9', 4.4, 0.25, 26, '#1c1f16'], roundelAt: 0.6 });
+  const paint = paintMaterial(livery, 0x5b6352);
+  const green = material(0x565e4c, 0.65, 0.12);
+  mesh(group, loftGeometry([
+    [-4.9, 0.05, 0.05, -0.3], [-4.6, 0.25, 0.3, -0.3], [-3.8, 0.42, 0.62, -0.15], [-2.6, 0.5, 0.85, 0.0], [-1.0, 0.55, 0.95, 0.05], [0.8, 0.55, 0.95, 0.05],
+    [2.0, 0.45, 0.7, 0.2], [3.8, 0.28, 0.4, 0.45], [6.0, 0.2, 0.28, 0.6], [7.7, 0.15, 0.22, 0.7],
+  ], 30), paint);
+  // Stepped tandem canopies, nose sensor, engines, mast.
+  mesh(group, loftGeometry([[-3.4, 0.05, 0.03, 0.55], [-3.1, 0.38, 0.32, 0.62], [-2.5, 0.42, 0.4, 0.68], [-2.0, 0.4, 0.38, 0.8], [-1.4, 0.38, 0.4, 0.9], [-0.9, 0.12, 0.08, 0.85]], 22), mats.glass);
+  ellipsoid(group, [0.3, 0.3, 0.32], [0, -0.32, -4.75], mats.dark, 14);
+  for (const side of [-1, 1]) ellipsoid(group, [0.33, 0.33, 1.5], [side * 0.62, 0.65, 0.6], green);
+  rod(group, new THREE.Vector3(0, 0.9, -0.2), new THREE.Vector3(0, 1.7, -0.2), 0.09, mats.metal, 10);
+  // Stub wings with rocket pods.
+  const stub = wingShape({ halfSpan: 2.3, rootChord: 1.0, tipChord: 0.8, centreZ: -0.2, sweep: 0.1, y: 0.0, rise: -0.1, thick: 0.12 });
+  addMirrored(group, stub.geometry, green);
+  for (const side of [-1, 1]) for (const x of [1.3, 2.1]) {
+    const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 1.4, 12), mats.dark);
+    pod.rotation.x = Math.PI / 2;
+    pod.position.set(side * x, -0.32, -0.2);
+    group.add(pod);
+  }
+  const stab = wingShape({ halfSpan: 1.4, rootChord: 0.7, tipChord: 0.55, centreZ: 6.9, sweep: 0.1, y: 0.35, thick: 0.1 });
+  addMirrored(group, stab.geometry, green);
+  finSurface(group, green, { y: 0.6, z: 6.6, chord: 1.2 }, { y: 2.2, z: 7.4, chord: 0.7 });
+  const rotors = [
+    rotor(group, mats, { pos: new THREE.Vector3(0, 1.72, -0.2), radius: 5.95, blades: 4, chord: 0.4 }),
+    rotor(group, mats, { pos: new THREE.Vector3(-0.3, 1.3, 7.4), radius: 1.15, blades: 4, chord: 0.16, axis: 'x', ratio: 5.8, side: 1 }),
+  ];
+  return { stab, rotors, noControls: true };
+}
+
 export const FLEET_BUILDERS = {
   fighter: buildFighter,
   eurofighter: buildEurofighter,
@@ -479,4 +623,7 @@ export const FLEET_BUILDERS = {
   twin: buildTwin,
   bizjet: buildBizjet,
   transport: buildTransport,
+  heli: buildHeli,
+  heliutility: buildHeliUtility,
+  heliattack: buildHeliAttack,
 };

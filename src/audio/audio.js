@@ -121,7 +121,23 @@ export class AudioEngine {
       const engine = fm.engines[i];
       let frequency = 30;
       let level = 0;
-      if (engine && active) {
+      if (fm.rotor && active) {
+        // Helicopter: voice 0 is the blade slap at the blade-passage frequency (louder
+        // with thrust), voice 1 the turboshaft whine.
+        const r = fm.rotor, nr = clamp(r.omega / r.omega0, 0, 1.2);
+        if (i === 0) {
+          frequency = Math.max(4, (r.omega * r.p.blades) / (2 * Math.PI));
+          const load = clamp(r.thrust / (fm.mass * 9.81), 0, 1.6);
+          level = nr * nr * (0.03 + 0.05 * load);
+          voice.filter.frequency.setTargetAtTime(180 + 260 * load, time, 0.1);
+        } else {
+          const n1 = clamp(Math.max(...fm.engines.map((e) => e.n1 || 0)) / 100);
+          frequency = 500 + n1 * 500;
+          level = n1 * 0.012;
+          jetPower += n1 * 0.3;
+          voice.filter.frequency.setTargetAtTime(900 + n1 * 1500, time, 0.1);
+        }
+      } else if (engine && active) {
         if (engine.type === 'piston') {
           const rpm = Math.max(0, engine.rpm || 0);
           frequency = Math.max(12, rpm / 60 * 2);

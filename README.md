@@ -2,7 +2,7 @@
 
 Simulatore di volo realistico per **Windows** (applicazione desktop Electron, funziona anche in qualsiasi browser
 con WebGL2). Fisica di volo a 6 gradi di libertà, cockpit completi con strumenti funzionanti e comandi
-cliccabili, sistemi di bordo, autopilota, radionavigazione, meteo dinamico, ciclo giorno/notte, **11 aerei civili e militari** e **43 missioni**.
+cliccabili, sistemi di bordo, autopilota, radionavigazione, meteo dinamico, ciclo giorno/notte, **11 aerei e 3 elicotteri civili e militari** e **51 missioni**.
 
 ## Caratteristiche
 
@@ -23,7 +23,7 @@ cliccabili, sistemi di bordo, autopilota, radionavigazione, meteo dinamico, cicl
   rateo di salita, corsa di decollo, consumi, autoland).
 
 ### Velivoli
-Undici aerei, civili e militari, ognuno con le sue prestazioni, il suo modello 3D e la sua livrea.
+Undici aerei e tre elicotteri, civili e militari, ognuno con le sue prestazioni, il suo modello 3D e la sua livrea.
 
 | Velivolo | Tipo | Caratteristiche |
 |---|---|---|
@@ -38,6 +38,16 @@ Undici aerei, civili e militari, ognuno con le sue prestazioni, il suo modello 3
 | **Bisonte C-30** | trasporto tattico quadrimotore (classe C-130J) | quattro turboeliche, ala alta, piste corte, inversione del passo |
 | **Folgore FX-16** | caccia multiruolo (classe F-16) | postbruciatore, Mach 2, fly-by-wire da caccia con 9 g e limitatore di incidenza |
 | **Grifone EF-2** | caccia bimotore canard-delta (classe Typhoon) | due motori con postbruciatore, supercrociera oltre Mach 1,2 |
+| **Colibrì H-6** | elicottero leggero a turbina (classe Bell 206) | rotore bipala, pattini, hovering e autorotazione |
+| **Orso UH-6** | elicottero da trasporto e soccorso (classe UH-60) | due turbine, rotore quadripala da 16 m, carrello a ruote |
+| **Calabrone AH-9** | elicottero d'attacco (classe A129 / AH-64) | rotore rigido agile, ali corte, HUD, volo a bassissima quota |
+
+Gli **elicotteri** hanno una fisica dedicata: rotore principale con teoria elemento-pala e flusso
+indotto, effetto suolo, portanza traslazionale, stato di anello vorticoso, inclinazione del disco con
+il ciclico, rotore di coda, regolatore dei giri della turbina e **autorotazione** quando manca la potenza.
+Il collettivo è sulla manetta; la stabilizzazione **AFCS** mantiene assetto e prua quando lasci i
+comandi e in hovering ferma l'elicottero sul punto. La barra in basso mostra collettivo, giri del
+rotore (NR) e coppia (TQ).
 
 Sui caccia la manetta oltre il 90% accende il **postbruciatore** (fiamma visibile e consumi
 quadruplicati); i turboelica e i motori a pistoni con elica a giri costanti, i compressori dei motori
@@ -74,7 +84,7 @@ in modo deterministico e senza giunzioni da `tools/make-textures.py` (Python con
 Pillow) e salvate in `assets/textures/`, quindi il gioco non richiede passaggi di build.
 
 ### Missioni
-43 missioni per tutti gli aerei, filtrabili per civili, militari, aereo e "da fare", con briefing,
+51 missioni per tutti gli aerei e gli elicotteri, filtrabili per civili, militari, velivolo e "da fare", con briefing,
 obiettivi, punteggio, stelle e analisi dell'atterraggio:
 
 - **Addestramento e civili**: primo decollo, circuito, touch and go, atterraggio di precisione, avaria
@@ -87,6 +97,10 @@ obiettivi, punteggio, stelle e analisi dell'atterraggio:
   sconosciuto, virata a 7 g, supercrociera senza postbruciatore, intercettazione notturna, navigazione
   tattica a bassa quota tra le colline, scorta di un quadrimotore con il caccia storico, lancio di
   rifornimenti, pista corta e ponte aereo per l'isola con il quadrimotore.
+
+- **Elicotteri**: primo hovering, volo per San Rocco con atterraggio su piazzola, autorotazione,
+  piazzola in quota, soccorso in mare con hovering sopra un'imbarcazione, trasporto truppe,
+  volo a bassissima quota tra le colline, atterraggio su un picco.
 
 I bersagli da intercettare sono aerei veri che volano lungo la loro rotta: distanza, direzione e quota
 compaiono in alto e sulla mappa.

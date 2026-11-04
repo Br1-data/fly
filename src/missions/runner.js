@@ -1,6 +1,7 @@
 import { FT, NM } from '../core/units.js';
 import { clamp, wrap180, RAD } from '../core/math.js';
 import { findRunwayEnd } from '../world/world-data.js';
+import { getTerrain } from '../world/terrain-height.js';
 
 // Segment proximity catches fast aircraft crossing a gate between rendered frames.
 function segmentDistance(a, b, p) {
@@ -125,6 +126,20 @@ export class MissionRunner {
       case 'stop':
         done = this.hold(!!this._lastLanding && fm.onGround && fm.gsKt < 5, o.duration, dt);
         break;
+      case 'hover': {
+        // Stable hover: height window, nearly no ground speed, over the point if given.
+        const near = o.n === undefined || Math.hypot(pos.n - o.n, pos.e - o.e) <= o.radius;
+        done = this.hold(!fm.onGround && near && fm.aglFt >= o.minAglFt && fm.aglFt <= o.maxAglFt && fm.gsKt <= (o.maxGsKt ?? 4), o.duration, dt);
+        break;
+      }
+      case 'touchdown': {
+        // Helicopter landing on a pad (or anywhere within `radius`), then settled.
+        const dist = Math.hypot(pos.n - o.n, pos.e - o.e);
+        const settled = fm.onGround && dist <= o.radius && fm.gsKt < 2;
+        done = this.hold(settled, o.duration || 2, dt);
+        if (done) this._lastLanding = { vsFpm: sim.landed?.vsFpm ?? 0, offset: dist, along: 0 };
+        break;
+      }
     }
     this._lastPos = pos;
     this._lastRoll = fm.roll;
@@ -206,7 +221,12 @@ export class MissionRunner {
       const dist = Number.isFinite(t.range) ? t.range : Math.hypot(dn, de);
       this.hint = `Bersaglio: ${(dist / NM).toFixed(1)} NM per ${Math.round(bearing).toString().padStart(3, '0')}° · ${Math.round(t.alt / FT)} ft · avvicinati entro ${o.range} m${o.behind ? ' in coda' : ''} · ${Math.floor(this._hold)}/${o.duration} s`;
     } else if (o.type === 'speed') this.hint = `${o.text} · ora Mach ${fm.mach.toFixed(2)} · ${Math.round(fm.iasKt)} kt${o.duration ? ` · ${Math.floor(this._hold)}/${o.duration} s` : ''}`;
-    else if (o.type === 'gload') this.hint = `${o.text} · ora ${fm.nz.toFixed(1)} g · ${Math.floor(this._hold)}/${o.duration} s`;
+    else if (o.type === 'hover' || o.type === 'touchdown') {
+      const d = o.n === undefined ? 0 : Math.hypot(o.n - fm.pos.x, o.e - fm.pos.y);
+      const bearing = (Math.atan2(o.e - fm.pos.y, o.n - fm.pos.x) * RAD + 360) % 360;
+      const where = o.n === undefined || o.radius >= 1000 ? '' : d > o.radius ? ` · piazzola a ${d > 900 ? `${(d / NM).toFixed(1)} NM` : `${Math.round(d)} m`} per ${Math.round(bearing).toString().padStart(3, '0')}°` : ' · sulla piazzola';
+      this.hint = `${o.text}${where} · ${Math.round(fm.aglFt)} ft AGL · ${Math.round(fm.gsKt)} kt${o.type === 'hover' ? ` · ${Math.floor(this._hold)}/${o.duration} s` : ''}`;
+    } else if (o.type === 'gload') this.hint = `${o.text} · ora ${fm.nz.toFixed(1)} g · ${Math.floor(this._hold)}/${o.duration} s`;
     else if (o.duration) this.hint = `${o.text} · ${Math.floor(this._hold)}/${o.duration} s consecutivi`;
     else if (o.type === 'roll') this.hint = `Rotazione: ${Math.round(Math.abs(this._roll))}° / 360° · Quota minima ${o.minAglFt} ft AGL`;
     else if (o.type === 'loop') this.hint = `Looping: ${Math.round(Math.max(0, this._loop))}° / 360° · tira la cloche, ali livellate · minimo ${o.minAglFt} ft AGL`;
@@ -219,6 +239,9 @@ export class MissionRunner {
     return this.objectives.flatMap((o, i) => {
       if (o.type === 'waypoint') return [{ type: o.ring || this.mission.id === 'percorso-anelli' ? 'ring' : 'waypoint', n: o.n, e: o.e, alt: o.alt,
         radius: o.radius, heading: o.heading ?? this.mission.setup.start.heading ?? 0, active: i === this.index, done: o.state === 'done' }];
+      if ((o.type === 'touchdown' || o.type === 'hover') && o.n !== undefined && o.radius < 1000) {
+        return [{ type: 'pad', n: o.n, e: o.e, alt: Math.max(0, getTerrain().height(o.n, o.e)) + 0.5, radius: o.radius, heading: 0, active: i === this.index, done: o.state === 'done' }];
+      }
       if (o.type === 'intercept' && i === this.index) {
         const t = this.target();
         return [{ type: 'target', n: t.n, e: t.e, alt: t.alt, heading: t.heading, model: t.model, radius: 60, active: true, done: false }];

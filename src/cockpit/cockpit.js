@@ -48,11 +48,18 @@ export class Cockpit {
     this.hud = h('canvas.ca-jet-hud', { width: 720, height: 460, 'aria-hidden': 'true' });
     this.shell = h('div.ca-shell', h('div.ca-canopy', { 'aria-hidden': 'true' }), h('div.ca-post.ca-post-left', { 'aria-hidden': 'true' }), h('div.ca-post.ca-post-right', { 'aria-hidden': 'true' }), this.left, this.right, this.el, this.hud);
     root.appendChild(this.shell);
+    // When the panel is hidden this button stays on screen, so the instruments can always
+    // be brought back (on phones the header with "Strumenti" is hidden with the panel).
+    this.restoreButton = h('button.ca-restore', { type: 'button', 'aria-label': 'Mostra il pannello strumenti', title: 'Mostra il pannello strumenti (W)',
+      onclick: () => this.setMode(this.touch && this.height <= 500 ? 'mini' : 'full') }, '▣ Strumenti');
+    this.restoreButton.hidden = true;
+    root.appendChild(this.restoreButton);
     for (const panel of [this.el, this.left, this.right]) {
       for (const event of ['pointerdown', 'pointerup', 'click', 'dblclick', 'contextmenu', 'wheel']) panel.addEventListener(event, (e) => e.stopPropagation());
     }
     this.installFocusRelease();
     installTouchTaps(this.shell);
+    installTouchTaps(this.restoreButton);
     this.canvas.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
     this.releaseHeld = () => {
       for (const key of ['pitch', 'roll', 'yaw', 'brakeL', 'brakeR', 'reverse']) if (this.sim.cockpitInput) delete this.sim.cockpitInput[key];
@@ -403,6 +410,7 @@ export class Cockpit {
   _visibility(){
     const visible=this.view==='cockpit'&&this.mode!=='hidden';
     this.shell.hidden=!visible;this.shell.classList.toggle('ca-mini',this.mode==='mini');
+    if(this.restoreButton)this.restoreButton.hidden=!(this.view==='cockpit'&&this.mode==='hidden');
     this.left.hidden=!this.consoles.left;this.right.hidden=!this.consoles.right;
     // On wide screens the panel uses the width left free by closed consoles.
     this.shell.style.setProperty('--ca-left',this.consoles.left?'var(--ca-side)':'0px');

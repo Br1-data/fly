@@ -411,6 +411,26 @@ export class SceneRenderer {
     }
     for (const marker of markers) {
       if (marker.done) continue;
+      if (marker.type === 'pad') {
+        // Landing pad: a flat glowing ring with an H, lying on the ground (or the sea).
+        const ground = Math.max(0, getTerrain().height(marker.n, marker.e));
+        const pad = new THREE.Group();
+        const ringMat = new THREE.MeshBasicMaterial({ color: marker.active ? 0xffce5e : 0x78cfd2, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
+        const ring = new THREE.Mesh(new THREE.RingGeometry(marker.radius * 0.86, marker.radius, 48), ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        pad.add(ring);
+        const s = marker.radius * 0.45;
+        for (const [w, d, x] of [[s * 0.18, s * 1.1, -s * 0.38], [s * 0.18, s * 1.1, s * 0.38], [s * 0.76, s * 0.18, 0]]) {
+          const bar = new THREE.Mesh(new THREE.PlaneGeometry(w, d), ringMat);
+          bar.rotation.x = -Math.PI / 2;
+          bar.position.x = x;
+          pad.add(bar);
+        }
+        groundToThree(marker.n, marker.e, ground + 0.25, pad.position);
+        pad.renderOrder = 5;
+        this.markers.add(pad);
+        continue;
+      }
       const radius = marker.radius || 100;
       const mesh = new THREE.Mesh(new THREE.TorusGeometry(radius, Math.max(2, radius * 0.025), 6, 40), new THREE.MeshBasicMaterial({ color: marker.active ? 0xffce5e : 0x78cfd2, transparent: true, opacity: marker.active ? 0.95 : 0.5 }));
       groundToThree(marker.n, marker.e, marker.alt ?? getTerrain().height(marker.n, marker.e) + 200, mesh.position);
@@ -454,6 +474,20 @@ export class SceneRenderer {
         prop.propDisc.material.opacity = 0.32 * blur;
       }
       prop.propeller.userData.blades.visible = blur < 0.98;
+    }
+    // Helicopter rotors: spin with the rotor speed, blur into a disc, main disc tilts with
+    // the flapping (cyclic and blow-back).
+    for (const r of this.aircraft.userData.rotors || []) {
+      const omega = fm.rotor?.omega || 0;
+      r.spin.rotation.y += (fm.rotor?.turn ?? 1) * omega * r.ratio * dt;
+      const blur = smoothstep(0.35, 0.8, omega / (fm.rotor?.omega0 || 1));
+      r.disc.material.opacity = (r.main ? 0.22 : 0.3) * blur;
+      r.disc.visible = blur > 0.02;
+      r.blades.visible = blur < 0.97;
+      if (r.main && fm.rotor) {
+        r.tilt.rotation.x = clamp(fm.rotor.a1, -0.25, 0.25);
+        r.tilt.rotation.z = -clamp(fm.rotor.b1, -0.25, 0.25);
+      }
     }
     // Afterburner flames and heat haze scale with each engine's reheat stage.
     for (const flame of this.aircraft.userData.flames || []) {

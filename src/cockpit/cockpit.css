@@ -56,3 +56,21 @@
 }
 .ca-knob-editable{cursor:text}.ca-knob-editable:hover{background:#0f2635}.ca-knob-entry{flex:1;min-width:0;width:100%;align-self:stretch;text-align:center;background:#102b3a;color:#ffe7a3;border:0;outline:1px solid #ffd582;font:12px var(--mono,monospace);padding:2px}
 @media(max-width:1000px),(max-height:640px){.ca-shell{--ca-left:0px!important;--ca-right:0px!important}}
+
+/* Always-reachable button that brings a hidden panel back. */
+.ca-restore {
+  position: absolute;
+  left: max(10px, env(safe-area-inset-left));
+  top: calc(max(6px, env(safe-area-inset-top)) + 58px);
+  z-index: 30;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(160, 200, 230, 0.45);
+  background: rgba(8, 18, 28, 0.82);
+  color: #e8f2f8;
+  font: 600 14px/1 system-ui, sans-serif;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.ca-restore[hidden] { display: none; }
