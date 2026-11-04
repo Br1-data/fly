@@ -13,6 +13,7 @@ import { getFlareTextures } from './textures.js';
 import { airportLayouts, LAKES } from '../world/world-data.js';
 import { getTerrain } from '../world/terrain-height.js';
 import { isLarge, getAircraft } from '../sim/aircraft/index.js';
+import { Explosion } from './explosion.js';
 import { clamp, DEG, hash2, smoothstep } from '../core/math.js';
 import { deviceClass } from '../core/device.js';
 
@@ -260,7 +261,48 @@ export class SceneRenderer {
     this.updateProjection();
   }
 
+  /** Ends the crash effect of a previous flight and restores the aircraft model. */
+  clearCrash() {
+    if (this.explosion) {
+      this.explosion.dispose();
+      this.explosion = null;
+    }
+    if (this.wrecked && this.aircraft) {
+      this.aircraft.visible = true;
+      for (const [material, color] of this.wrecked) material.color?.copy(color);
+    }
+    this.wrecked = null;
+    this.webgl.toneMappingExposure = 1.05;
+  }
+
+  /** Impact: fireball and debris; a fast impact destroys the model, a slow one leaves a charred wreck. */
+  _startCrash(sim) {
+    const fm = sim.fm, terrain = getTerrain();
+    const velocity = v3ToThree(fm.vel, new THREE.Vector3());
+    const groundY = (x, z) => {
+      const n = -z, e = x;
+      const h = Math.max(0, terrain.height(n, e));
+      const lake = terrain.lakeLevel?.(n, e);
+      return lake !== null && lake !== undefined ? Math.max(h, lake) : h;
+    };
+    const n = fm.pos.x, e = fm.pos.y;
+    const lake = terrain.lakeLevel?.(n, e);
+    const water = terrain.height(n, e) <= 0.3 || (lake !== null && lake !== undefined && terrain.height(n, e) < lake);
+    const fuel = Math.min(1, (fm.systems.fuelTotal || 0) / Math.max(1, this.def.fuel.capacity));
+    const paint = this.aircraft.userData.materials.find((m) => m.color && !m.transparent)?.color || new THREE.Color(0x9aa3aa);
+    this.explosion = new Explosion(this.scene, { position: this.position, velocity, groundY, scale: Math.min(3.5, Math.max(0.6, this.def.wing.span / 11)), fuel, water, paint });
+    const violent = velocity.length() > 30 || water;
+    this.wrecked = [];
+    if (violent) this.aircraft.visible = false;
+    else for (const m of this.aircraft.userData.materials) {
+      if (!m.color) continue;
+      this.wrecked.push([m, m.color.clone()]);
+      m.color.multiplyScalar(0.18);
+    }
+  }
+
   setAircraft(def) {
+    this.clearCrash();
     if (this.def?.id === def.id && this.aircraft) return;
     if (this.aircraft) {
       this.scene.remove(this.aircraft);
@@ -431,8 +473,23 @@ export class SceneRenderer {
     this.terrain.plan(fm.pos.x, fm.pos.y);
     // Streaming runs in a worker (or one tile per frame without one); loading uses warmup.
     this.terrain.stream();
+    if (sim.crashed && !this.explosion) this._startCrash(sim);
+    if (this.wrecked && !this.wrecked.length && this.explosion) this.aircraft.visible = false;
     this.updateCamera(sim);
     this.updateEnvironment(sim, dt);
+    if (this.explosion) {
+      this.explosion.update(dt, sceneryUniforms.uNight.value);
+      // Shake the camera, more when close, and flash the whole picture.
+      const a = this.explosion.shake(this.camera.position.distanceTo(this.explosion.origin));
+      if (a > 0.01) {
+        const t = this.elapsed;
+        this.camera.position.x += a * Math.sin(t * 53.1) * 0.6;
+        this.camera.position.y += a * Math.sin(t * 61.7 + 1.3) * 0.6;
+        this.camera.position.z += a * Math.sin(t * 47.3 + 2.1) * 0.6;
+        this.camera.rotateZ(a * 0.004 * Math.sin(t * 40));
+      }
+      this.webgl.toneMappingExposure = 1.05 * this.explosion.flash();
+    }
   }
 
   updateCamera(sim) {

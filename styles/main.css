@@ -1135,7 +1135,11 @@ body[data-state='flight'] .hud-atis {
   opacity: 1;
 }
 .overlay.crash-bg {
-  background: radial-gradient(circle, rgba(60, 10, 0, 0.55), rgba(0, 0, 0, 0.8));
+  /* The wreck keeps burning above the report: no blur, only a dark band at the bottom. */
+  background: linear-gradient(to top, rgba(10, 2, 0, 0.82), rgba(10, 2, 0, 0.25) 45%, rgba(0, 0, 0, 0) 70%);
+  backdrop-filter: none;
+  align-items: flex-end;
+  padding-bottom: max(5vh, env(safe-area-inset-bottom));
 }
 .dialog {
   background: var(--panel);

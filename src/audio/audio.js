@@ -190,7 +190,7 @@ export class AudioEngine {
       case 'callout': if (!this.muted && this.volume > 0) this.speech.callout(event.value); break;
       case 'atis': if (!this.muted && this.volume > 0) this.speech.radio(event.text); break;
       case 'touchdown': this._tone(65, 0.25, 0.15, 0, 'triangle'); break;
-      case 'crash': this._tone(45, 0.6, 0.2, 0, 'sawtooth'); break;
+      case 'crash': this._explosion(); break;
       case 'gearMoving': this._movementSound(event.type, 140, 0.8, 0.035); break;
       case 'flapsMoving': this._movementSound(event.type, 220, 0.4, 0.025); break;
       case 'marker': this._tone(event.which === 'OM' ? 400 : 1300, 0.2, 0.08); break;
@@ -203,6 +203,48 @@ export class AudioEngine {
       default: break;
     }
   }
+  /** Explosion: a deep thump, a roaring noise burst that darkens as it fades, and crackle. */
+  _explosion() {
+    if (!this.context || this.muted || this.volume === 0) return;
+    const ctx = this.context, now = ctx.currentTime;
+    const len = Math.floor(ctx.sampleRate * 4);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let brown = 0;
+    for (let i = 0; i < len; i++) {
+      const t = i / ctx.sampleRate;
+      brown = brown * 0.985 + (Math.random() * 2 - 1) * 0.15;
+      // Rumble plus sparse crackles from burning debris.
+      const crackle = Math.random() < 0.0016 * Math.exp(-t * 0.6) ? (Math.random() * 2 - 1) * 3 : 0;
+      d[i] = (brown * 2.4 + (Math.random() * 2 - 1) * 0.35 * Math.exp(-t * 5) + crackle) * Math.exp(-t * 0.9);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(3500, now);
+    lp.frequency.exponentialRampToValueAtTime(220, now + 2.5);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.5, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 4);
+    src.connect(lp).connect(gain).connect(this.master);
+    src.start(now);
+    src.onended = () => { src.disconnect(); lp.disconnect(); gain.disconnect(); };
+    // Low-frequency thump.
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(70, now);
+    osc.frequency.exponentialRampToValueAtTime(28, now + 0.8);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.45, now);
+    og.gain.exponentialRampToValueAtTime(0.0001, now + 1.1);
+    osc.connect(og).connect(this.master);
+    osc.start(now);
+    osc.stop(now + 1.2);
+    osc.onended = () => { osc.disconnect(); og.disconnect(); };
+  }
+
   /** ATIS repeat and other radio texts. */
   speak(text) {
     if (this.muted || this.volume === 0 || !text) return;

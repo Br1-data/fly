@@ -501,7 +501,12 @@ export class App {
         case 'crash':
           if (!this.crashShown) {
             this.crashShown = true;
-            this._crashTimer = setTimeout(() => this._showCrash(ev.reason), 2600);
+            // Watch the explosion from outside before the crash report appears.
+            this._setView('orbit', true);
+            this.renderer.setPanelFraction(0);
+            this.renderer.tilt = 0.28;
+            this.renderer.zoomFactor = 1.15;
+            this._crashTimer = setTimeout(() => this._showCrash(ev.reason), 5500);
           }
           break;
         case 'atis':
@@ -611,10 +616,12 @@ export class App {
         this._debriefTimer = setTimeout(() => {
           this._debriefTimer = null;
           this._showDebrief();
-        }, sim.crashed ? 2600 : 1800);
+        }, sim.crashed ? 5500 : 1800);
       }
     }
     this._dispatchEvents();
+    // Slow orbit around the crash site.
+    if (sim.crashed && this.view === 'orbit') this.renderer.yaw += dt * 0.13;
     // A paused mobile flight is a still image, including while reading the guide.
     if (!this.touchMode || !sim.paused || this._needsRender) {
       this.cockpit.setNight(nightFactor(sim.timeOfDay));
