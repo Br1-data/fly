@@ -117,7 +117,7 @@ try {
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   }
 
-  const fleet = await page.evaluate(async () => (await import('/src/sim/aircraft/index.js')).AIRCRAFT_LIST.map((d) => d.id).filter((id) => id !== 'trainer'));
+  const fleet = await page.evaluate(async () => (await import(new URL('src/sim/aircraft/index.js', document.baseURI).href)).AIRCRAFT_LIST.map((d) => d.id).filter((id) => id !== 'trainer'));
   check(`Hangar con ${fleet.length + 1} velivoli`, fleet.length >= 10);
   for (const aircraft of fleet) {
     await page.evaluate(async (id) => {
@@ -134,7 +134,7 @@ try {
   await page.evaluate(() => window.__cieli.showMainMenu());
   await page.getByRole('button', { name: /Missioni/ }).click();
   const catalogue = await page.evaluate(async () => {
-    const [{ MISSIONS }, { getAircraft }] = await Promise.all([import('/src/missions/missions.js'), import('/src/sim/aircraft/index.js')]);
+    const [{ MISSIONS }, { getAircraft }] = await Promise.all([import(new URL('src/missions/missions.js', document.baseURI).href), import(new URL('src/sim/aircraft/index.js', document.baseURI).href)]);
     return { all: MISSIONS.length, military: MISSIONS.filter((m) => getAircraft(m.aircraft).role === 'military').length };
   });
   check(`Catalogo di ${catalogue.all} missioni`, catalogue.all >= 40 && await page.locator('.mission-card').count() === catalogue.all);
