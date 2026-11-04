@@ -75,6 +75,7 @@ export class App {
     this.cockpit = new deps.Cockpit(this.roots.cockpit, this.flightSim);
     this.audio = new deps.AudioEngine();
     this.audio.setVolume(this.settings.volume);
+    this.audio.setSpeech?.({ voice: this.settings.voice, rate: this.settings.voiceRate });
     this.audio.setMuted(true);
     const resumeAudio = () => {
       this.audio.resume?.();
@@ -201,6 +202,7 @@ export class App {
     saveSettings(this.settings);
     this.renderer.setQuality(this.settings.quality);
     this.audio.setVolume(this.settings.volume);
+    this.audio.setSpeech?.({ voice: this.settings.voice, rate: this.settings.voiceRate });
     Object.assign(this.flightSim.settings, this.settings.realism);
     if (this.flightSim.fm) {
       this.flightSim.fm.systems.infiniteFuel = this.settings.realism.unlimitedFuel;

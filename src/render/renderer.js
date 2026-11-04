@@ -16,6 +16,9 @@ import { isLarge, getAircraft } from '../sim/aircraft/index.js';
 import { clamp, DEG, hash2, smoothstep } from '../core/math.js';
 import { deviceClass } from '../core/device.js';
 
+/** Steps of the dynamic resolution (fraction of the pixel budget). */
+const RESOLUTION_LEVELS = [1, 0.85, 0.72, 0.6];
+
 const VIEWS = ['cockpit', 'chase', 'orbit', 'tower', 'flyby'];
 const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -223,11 +226,23 @@ export class SceneRenderer {
   }
 
   resize(width, height) {
-    this.width = Math.max(1, width);
-    this.height = Math.max(1, height);
-    this.baseRatio = getRenderPixelRatio(this.profile, this.width, this.height, window.devicePixelRatio || 1);
-    this.webgl.setPixelRatio(this.baseRatio * (this.profile.dynamicResolution ? this.resolutionScale : 1));
-    this.webgl.setSize(this.width, this.height, false);
+    width = Math.max(1, width);
+    height = Math.max(1, height);
+    const ratio = getRenderPixelRatio(this.profile, width, height, window.devicePixelRatio || 1);
+    if (!this.profile.dynamicResolution) this.resolutionScale = 1;
+    // Re-assigning a canvas size clears it even when nothing changed (iOS fires resize
+    // for toolbar and keyboard changes): only reallocate on a real change, and do it just
+    // before the next frame is drawn so no empty frame reaches the screen.
+    const changed = width !== this.width || height !== this.height || ratio !== this.baseRatio || this._sizedOnce !== true;
+    this.width = width;
+    this.height = height;
+    this.baseRatio = ratio;
+    if (changed) {
+      this._sizedOnce = true;
+      this._resizePending = true;
+      // The first sizing happens at once so the canvas is never drawn at its default size.
+      if (!this._renderedOnce) this.applyResolution();
+    }
     this.camera.aspect = this.width / this.height;
     this.updateProjection();
   }
@@ -602,15 +617,20 @@ export class SceneRenderer {
   }
 
   render() {
+    this.applyResolution();
+    this._renderedOnce = true;
     this.webgl.render(this.scene, this.camera);
     this.adaptResolution(performance.now());
   }
 
   /**
    * Keeps the frame rate on tablets and phones by trading resolution: when frames take
-   * clearly longer than the target the drawing buffer shrinks in 12 % steps (down to 60 % of
-   * the budget); after a few seconds of comfortable frames it grows back. Pauses, loading
-   * and background tabs (gaps over 250 ms) are ignored.
+   * clearly longer than the target the drawing buffer drops one step (85, 72, 60 % of the
+   * budget); after several seconds of comfortable frames it climbs back one step. If a
+   * step up is followed straight away by a step down, the lower step is kept for minutes
+   * so the picture does not keep changing. Pauses, loading and background tabs (gaps over
+   * 250 ms) are ignored. The new size is applied before the next frame is drawn: resizing
+   * a canvas clears it, and doing that after drawing would show an empty frame (flicker).
    */
   adaptResolution(now) {
     const f = this._frames;
@@ -620,18 +640,37 @@ export class SceneRenderer {
     f.ema = f.ema ? f.ema + (interval - f.ema) * 0.1 : interval;
     const target = 1000 / Math.min(this.profile.maxFps, 60);
     if (now - f.changed < 1500) return;
-    let scale = this.resolutionScale;
-    if (f.ema > target * 1.22) {
-      scale = Math.max(0.6, scale * 0.88);
+    const levels = RESOLUTION_LEVELS;
+    let level = levels.findIndex((v) => v <= this.resolutionScale + 1e-6);
+    if (level < 0) level = levels.length - 1;
+    if (f.ema > target * 1.22 && level < levels.length - 1) {
+      level++;
       f.good = 0;
-    } else if (f.ema < target * 1.06) {
+      if (now - (f.grown || -Infinity) < 8000) {
+        // The step up was too much: stay lower, a little longer at every retry.
+        f.holdFor = Math.min((f.holdFor || 90000) * 2, 600000);
+        f.hold = now + f.holdFor;
+      }
+    } else if (f.ema < target * 1.04 && level > 0 && now > (f.hold || 0)) {
       f.good += interval;
-      if (f.good > 3000) { scale = Math.min(1, scale * 1.1); f.good = 0; }
-    } else f.good = 0;
-    if (Math.abs(scale - this.resolutionScale) < 1e-3) return;
-    this.resolutionScale = scale;
+      if (f.good < 6000) return;
+      level--;
+      f.good = 0;
+      f.grown = now;
+    } else {
+      if (f.ema >= target * 1.04) f.good = 0;
+      return;
+    }
+    this.resolutionScale = levels[level];
     f.changed = now;
-    this.webgl.setPixelRatio(this.baseRatio * scale);
+    this._resizePending = true;
+  }
+
+  /** Applies a resolution change decided by adaptResolution, before drawing. */
+  applyResolution() {
+    if (!this._resizePending) return;
+    this._resizePending = false;
+    this.webgl.setPixelRatio(this.baseRatio * this.resolutionScale);
     this.webgl.setSize(this.width, this.height, false);
   }
 

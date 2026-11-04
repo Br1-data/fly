@@ -116,7 +116,11 @@ test('dynamic resolution trades sharpness for frame rate and recovers', async ()
   };
   const run = (interval, seconds, start) => {
     let now = start;
-    for (let t = 0; t < seconds * 1000; t += interval) { now += interval; SceneRenderer.prototype.adaptResolution.call(fake, now); }
+    for (let t = 0; t < seconds * 1000; t += interval) {
+      now += interval;
+      SceneRenderer.prototype.applyResolution.call(fake);
+      SceneRenderer.prototype.adaptResolution.call(fake, now);
+    }
     return now;
   };
   let now = run(16.7, 2, 1000);
@@ -129,6 +133,39 @@ test('dynamic resolution trades sharpness for frame rate and recovers', async ()
   const paused = fake.resolutionScale;
   SceneRenderer.prototype.adaptResolution.call(fake, now + 100000);
   assert.equal(fake.resolutionScale, paused, 'a long pause is ignored');
+  // Borderline device: every step up is immediately too slow. It must settle, not flicker.
+  fake.resolutionScale = 1;
+  fake._frames = { last: 0, ema: 0, changed: 0, good: 0 };
+  ratios.length = 0;
+  let t = 1000;
+  for (let i = 0; i < 120 * 60; i++) {
+    const slow = fake.resolutionScale > 0.8;
+    t += slow ? 24 : 16.7;
+    SceneRenderer.prototype.applyResolution.call(fake);
+    SceneRenderer.prototype.adaptResolution.call(fake, t);
+  }
+  assert.ok(ratios.length <= 4, `resolution changed ${ratios.length} times in two minutes`);
+});
+
+test('a resolution change is applied before drawing, never after (no blank frame)', async () => {
+  const { SceneRenderer } = await import('../src/render/renderer.js');
+  const calls = [];
+  const fake = {
+    profile: getRenderProfile('medium', 'tablet'), dynamicResolution: true, resolutionScale: 1, baseRatio: 1, width: 800, height: 600,
+    _frames: { last: 0, ema: 0, changed: 0, good: 0 }, scene: {}, camera: {},
+    webgl: { setPixelRatio: () => calls.push('ratio'), setSize: () => calls.push('size'), render: () => calls.push('render') },
+    applyResolution: SceneRenderer.prototype.applyResolution, adaptResolution: SceneRenderer.prototype.adaptResolution,
+  };
+  const real = globalThis.performance.now;
+  let now = 1000;
+  globalThis.performance.now = () => now;
+  try {
+    for (let i = 0; i < 400; i++) { now += 45; SceneRenderer.prototype.render.call(fake); }
+  } finally { globalThis.performance.now = real; }
+  assert.ok(calls.includes('size'));
+  // Every resize is followed by a render in the same frame, and no frame ends on a resize.
+  assert.notEqual(calls.at(-1), 'size');
+  calls.forEach((c, i) => { if (c === 'size') assert.equal(calls[i + 1], 'render'); });
 });
 
 test('iPhones get a sharp Apple-GPU profile, also in Safari desktop-website mode', (t) => {

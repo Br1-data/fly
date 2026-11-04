@@ -7,6 +7,8 @@ const KEY = 'cieli-aperti.settings';
 export const DEFAULT_APP_SETTINGS = {
   quality: 'medium',
   volume: 0.8,
+  voice: '',
+  voiceRate: 1,
   muted: false,
   showHud: true,
   defaultView: 'cockpit',

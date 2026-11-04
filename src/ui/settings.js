@@ -1,8 +1,9 @@
 // Settings: graphics, audio, realism, interface.
-import { h, button, segmented, slider, checkbox } from './dom.js';
+import { h, button, segmented, slider, checkbox, select } from './dom.js';
 
 export class SettingsScreen {
   constructor(app, { back }) {
+    this.app = app;
     const s = app.settings;
     const apply = () => app.applySettings();
     const R = s.realism;
@@ -92,6 +93,20 @@ export class SettingsScreen {
                 apply();
               },
             }),
+            this.voiceField(s, apply),
+            slider({
+              label: 'Velocità della voce',
+              min: 0.75,
+              max: 1.35,
+              step: 0.05,
+              value: s.voiceRate ?? 1,
+              format: (v) => `${Math.round(v * 100)} %`,
+              onInput: (v) => {
+                s.voiceRate = v;
+                apply();
+              },
+            }),
+            button('Prova la voce', () => this.testVoice(), 'ghost'),
           ),
           h(
             'section.span2',
@@ -110,5 +125,32 @@ export class SettingsScreen {
         ),
       ),
     );
+  }
+
+  /** Voice list: the best Italian voice by default, any installed Italian voice, or none. */
+  voiceField(s, apply) {
+    const speech = this.app.audio?.speech;
+    const voices = speech?.italianVoices?.() || [];
+    const options = [{ value: '', label: voices.length ? `Automatica (${voices[0].name})` : 'Automatica' },
+      ...voices.map((v) => ({ value: v.name, label: `${v.name}${/natural|neural|online|google|premium|enhanced/i.test(v.name) ? ' ★' : ''}` })),
+      { value: 'off', label: 'Nessuna voce (solo testo)' }];
+    const field = select({ label: 'Voce ATIS e callout', options, value: s.voice || '', onChange: (v) => {
+      s.voice = v;
+      apply();
+    } });
+    if (!voices.length) field.appendChild(h('small.muted', speech?.available ? 'Nessuna voce italiana installata: il sistema userà quella predefinita. Su Windows aggiungi «Italiano» in Impostazioni › Ora e lingua › Voce.' : 'Questo browser non supporta la sintesi vocale.'));
+    // Voices load asynchronously in Chrome and Safari: refresh the list once they arrive.
+    if (!voices.length && speech?.synth?.addEventListener && !this._voiceRetry) {
+      this._voiceRetry = true;
+      speech.synth.addEventListener('voiceschanged', () => field.replaceWith(this.voiceField(s, apply)), { once: true });
+    }
+    return field;
+  }
+
+  testVoice() {
+    const audio = this.app.audio;
+    audio?.resume?.();
+    audio?.speech?.stop();
+    audio?.speech?.radio('Aquila Internazionale informazioni Bravo. Pista in uso 25. Vento 250 gradi 8 nodi. QNH 1018. Informate di aver ricevuto Bravo.');
   }
 }

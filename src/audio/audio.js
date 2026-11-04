@@ -1,4 +1,6 @@
 // All sounds are synthesised locally; no external assets or network access required.
+import { Speech } from './speech.js';
+
 const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 
 export class AudioEngine {
@@ -9,6 +11,9 @@ export class AudioEngine {
     this.context = null;
     this.voices = [];
     this._movementNext = new Map();
+    this.speech = new Speech();
+    // Squelch clicks frame the ATIS like a real radio broadcast.
+    this.speech.onRadio = (phase) => this._radioClick(phase);
     this._onClick = (event) => this.click(event.detail?.kind || 'button');
     globalThis.window?.addEventListener('cieli:click', this._onClick);
   }
@@ -60,18 +65,44 @@ export class AudioEngine {
 
   async resume() {
     this._init();
+    this.speech.unlock();
     if (this.context?.state === 'suspended') await this.context.resume();
   }
   setAircraft(def) { this.def = def; this._movementNext.clear(); }
   setVolume(value) {
     this.volume = clamp(Number(value) || 0);
     this._updateMaster();
-    if (this.volume === 0) globalThis.speechSynthesis?.cancel();
+    this.speech.configure({ volume: Math.min(1, this.volume * 1.15) });
+    if (this.volume === 0) this.speech.stop();
   }
   setMuted(value) {
     this.muted = !!value;
     this._updateMaster();
-    if (this.muted) globalThis.speechSynthesis?.cancel();
+    if (this.muted) this.speech.stop();
+  }
+  /** Voice settings: voice name ('' = best Italian voice, 'off' = no speech) and rate. */
+  setSpeech({ voice = '', rate = 1 } = {}) {
+    this.speech.configure({ voice, rate });
+  }
+  _radioClick(phase) {
+    if (!this.context || this.muted || this.volume === 0) return;
+    // Short burst of band-limited noise like a key-up / key-down on the radio.
+    const ctx = this.context, start = ctx.currentTime + (phase === 'start' ? 0 : 0.05);
+    const src = ctx.createBufferSource();
+    const len = Math.floor(ctx.sampleRate * 0.09);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    src.buffer = buf;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 1800;
+    band.Q.value = 0.8;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.05;
+    src.connect(band).connect(gain).connect(this.master);
+    src.start(start);
+    src.onended = () => { src.disconnect(); band.disconnect(); gain.disconnect(); };
   }
   _updateMaster() {
     if (this.context) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.context.currentTime, 0.04);
@@ -156,8 +187,8 @@ export class AudioEngine {
   handleEvent(event) {
     if (!event) return;
     switch (event.type) {
-      case 'callout': this.speak(String(event.value)); break;
-      case 'atis': this.speak(event.text); break;
+      case 'callout': if (!this.muted && this.volume > 0) this.speech.callout(event.value); break;
+      case 'atis': if (!this.muted && this.volume > 0) this.speech.radio(event.text); break;
       case 'touchdown': this._tone(65, 0.25, 0.15, 0, 'triangle'); break;
       case 'crash': this._tone(45, 0.6, 0.2, 0, 'sawtooth'); break;
       case 'gearMoving': this._movementSound(event.type, 140, 0.8, 0.035); break;
@@ -172,19 +203,14 @@ export class AudioEngine {
       default: break;
     }
   }
+  /** ATIS repeat and other radio texts. */
   speak(text) {
-    if (this.muted || this.volume === 0 || !text || !globalThis.speechSynthesis || !globalThis.SpeechSynthesisUtterance) return;
-    const utterance = new SpeechSynthesisUtterance(String(text));
-    utterance.lang = 'it-IT';
-    utterance.volume = this.volume;
-    utterance.rate = 1.05;
-    // A new callout or ATIS replaces stale queued speech.
-    globalThis.speechSynthesis.cancel();
-    globalThis.speechSynthesis.speak(utterance);
+    if (this.muted || this.volume === 0 || !text) return;
+    this.speech.radio(String(text));
   }
   destroy() {
     globalThis.window?.removeEventListener('cieli:click', this._onClick);
-    globalThis.speechSynthesis?.cancel();
+    this.speech.stop();
     this.voices.forEach((voice) => voice.oscillator.stop());
     this.warning?.stop();
     this.noise?.stop();
