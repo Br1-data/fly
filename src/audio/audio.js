@@ -96,11 +96,20 @@ export class AudioEngine {
           frequency = Math.max(12, rpm / 60 * 2);
           level = clamp(rpm / 2600) * (0.025 + clamp(engine.throttle || 0) * 0.045);
           voice.filter.frequency.setTargetAtTime(300 + rpm * 0.3, time, 0.1);
+        } else if (engine.p?.prop) {
+          // Turboprop: propeller blade-pass buzz over a softer turbine whine.
+          const n1 = clamp((engine.n1 || 0) / 100);
+          const rpm = Math.max(0, engine.rpm || 0);
+          frequency = Math.max(20, rpm / 60 * (engine.p.prop.blades || 4) * 0.5);
+          level = n1 * (0.022 + clamp(engine.throttle || 0) * 0.03);
+          jetPower += n1 * 0.4;
+          voice.filter.frequency.setTargetAtTime(400 + n1 * 900, time, 0.1);
         } else {
           const n1 = clamp((engine.n1 || 0) / 100);
           frequency = 70 + n1 * 450;
           level = n1 * 0.035;
-          jetPower += n1;
+          // Engines beyond the two voices still add to the roar; reheat roars much louder.
+          jetPower += n1 * (fm.engines.length > 2 ? 2 : 1) + (engine.afterburner || 0) * 1.6;
           voice.filter.frequency.setTargetAtTime(300 + n1 * 1800, time, 0.1);
         }
       }

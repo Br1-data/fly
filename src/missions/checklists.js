@@ -13,7 +13,7 @@ export function getChecklists(def) {
     ] },
     { id: 'avviamento', title: jet ? 'Avviamento turbine' : 'Avviamento motore', items: jet ? [
       item('Batteria', 'ON', (s) => s.fm.systems.battery),
-      ...(def.id === 'airliner' ? [item('APU MASTER', 'ON', (s) => s.fm.systems.apuMaster), item('APU BLEED', 'ON', (s) => s.fm.systems.apuBleed)] : []),
+      ...(def.systems.apu ? [item('APU MASTER', 'ON', (s) => s.fm.systems.apuMaster), item('APU BLEED', 'ON', (s) => s.fm.systems.apuBleed)] : []),
       item('ENG MASTER', 'ON', (s) => s.engineMaster.every(Boolean)),
       item('Avviamento', 'IGN / START'),
       item('Motori', 'STABILIZZATI', (s) => s.fm.engines.every((e) => e.running)),
@@ -49,7 +49,9 @@ export function getChecklists(def) {
     { id: 'atterraggio', title: 'Avvicinamento e atterraggio', items: [
       item('Aeroporto e pista', 'IDENTIFICATI'),
       item('Altimetro', 'QNH LOCALE', (s) => Math.abs(s.fm.kollsman - s.atm.qnh) < 100),
-      ...(jet ? [item('Autobrake', 'SELEZIONATO', (s) => s.fm.systems.autobrake > 0), item('Spoiler', 'ARMATI', (s) => s.fm.systems.spoilersArmed)] : [item('Miscela', 'RICCA', (s) => s.pilot.mixture > 0.95)]),
+      ...(def.controls.autobrake ? [item('Autobrake', 'SELEZIONATO', (s) => s.fm.systems.autobrake > 0)] : []),
+      ...(jet && def.panel === 'airliner' && def.controls.spoilers ? [item('Spoiler', 'ARMATI', (s) => s.fm.systems.spoilersArmed)] : []),
+      ...(jet ? [] : [item('Miscela', 'RICCA', (s) => s.pilot.mixture > 0.95)]),
       item('Carrello', retractable ? 'GIÙ, VERIFICATO' : 'FISSO', (s) => s.fm.systems.gearPos > 0.99),
       item('Flap', 'ATTERRAGGIO', (s) => s.fm.systems.flapsLever === def.controls.flapDetents.length - 1),
       item('Velocità di avvicinamento', `${def.speeds.vapp} kt`),

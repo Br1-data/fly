@@ -2,7 +2,7 @@
 
 Simulatore di volo realistico per **Windows** (applicazione desktop Electron, funziona anche in qualsiasi browser
 con WebGL2). Fisica di volo a 6 gradi di libertà, cockpit completi con strumenti funzionanti e comandi
-cliccabili, sistemi di bordo, autopilota, radionavigazione, meteo dinamico, ciclo giorno/notte e **13 missioni**.
+cliccabili, sistemi di bordo, autopilota, radionavigazione, meteo dinamico, ciclo giorno/notte, **11 aerei civili e militari** e **43 missioni**.
 
 ## Caratteristiche
 
@@ -23,11 +23,25 @@ cliccabili, sistemi di bordo, autopilota, radionavigazione, meteo dinamico, cicl
   rateo di salita, corsa di decollo, consumi, autoland).
 
 ### Velivoli
-| Velivolo | Tipo | Cockpit |
+Undici aerei, civili e militari, ognuno con le sue prestazioni, il suo modello 3D e la sua livrea.
+
+| Velivolo | Tipo | Caratteristiche |
 |---|---|---|
 | **Falco T-172** | monomotore a pistoni da addestramento (classe C172) | strumenti analogici "six-pack", radio, ADF, autopilota a 2 assi |
+| **Allodola X-300** | monoplano acrobatico (classe Extra 300) | ala simmetrica, rollio 400°/s, ±10 g, ruotino di coda, fumogeni |
+| **Gabbiano BT-44** | bimotore a pistoni (classe PA-44) | eliche controrotanti a giri costanti, carrello retrattile, coda a T, avaria di un motore |
+| **Condor CJ-5** | business jet (classe Citation CJ4) | motori posteriori, coda a T, glass cockpit, tangenza 45.000 ft |
 | **AX-320 Aquila** | bireattore di linea fly-by-wire (classe A320) | glass cockpit PFD/ND/ECAM, FCU, autothrottle, ILS, autoland |
+| **Picchio T-21** | addestratore militare turboelica (classe PC-21) | turboelica da 1600 shp, elica pentapala, HUD |
 | **Freccia JT-9** | jet da addestramento acrobatico (classe MB-339) | HUD, strumenti analogici, fumogeni tricolori |
+| **Vespa V-51** | caccia storico a pistoni (classe P-51D) | V-12 sovralimentato, elica a giri costanti, coppia forte, ruotino di coda |
+| **Bisonte C-30** | trasporto tattico quadrimotore (classe C-130J) | quattro turboeliche, ala alta, piste corte, inversione del passo |
+| **Folgore FX-16** | caccia multiruolo (classe F-16) | postbruciatore, Mach 2, fly-by-wire da caccia con 9 g e limitatore di incidenza |
+| **Grifone EF-2** | caccia bimotore canard-delta (classe Typhoon) | due motori con postbruciatore, supercrociera oltre Mach 1,2 |
+
+Sui caccia la manetta oltre il 90% accende il **postbruciatore** (fiamma visibile e consumi
+quadruplicati); i turboelica e i motori a pistoni con elica a giri costanti, i compressori dei motori
+storici, la resistenza d'onda supersonica e la coppia delle eliche sono simulati.
 
 ### Sistemi e comandi
 Impianto elettrico (batteria, alternatore, avionica), carburante con selettore e serbatoi, flap e slat,
@@ -60,9 +74,22 @@ in modo deterministico e senza giunzioni da `tools/make-textures.py` (Python con
 Pillow) e salvate in `assets/textures/`, quindi il gioco non richiede passaggi di build.
 
 ### Missioni
-Primo decollo, circuito di traffico, atterraggio di precisione, avaria motore, navigazione VOR, avviamento a
-freddo, atterraggio in montagna, ILS nella nebbia, volo di linea, vento al traverso, percorso ad anelli,
-acrobazia, volo notturno — con briefing, obiettivi, punteggio, stelle e analisi dell'atterraggio.
+43 missioni per tutti gli aerei, filtrabili per civili, militari, aereo e "da fare", con briefing,
+obiettivi, punteggio, stelle e analisi dell'atterraggio:
+
+- **Addestramento e civili**: primo decollo, circuito, touch and go, atterraggio di precisione, avaria
+  motore, navigazione VOR, avviamento a freddo, montagna, ILS nella nebbia, voli di linea, vento al traverso,
+  gita al lago, pista corta dell'Isola Serena, executive per Borgo, salita a 37.000 ft.
+- **Acrobazia**: looping, volo rovescio, programma acrobatico con tonneau, looping e virata a 5 g,
+  percorso ad anelli, looping con i fumogeni.
+- **Bimotore**: avaria di un motore al decollo con circuito monomotore, VOR e ILS a Borgo.
+- **Militari**: muro del suono (Mach 1,4), decollo su allarme a tempo, intercettazione di un traffico
+  sconosciuto, virata a 7 g, supercrociera senza postbruciatore, intercettazione notturna, navigazione
+  tattica a bassa quota tra le colline, scorta di un quadrimotore con il caccia storico, lancio di
+  rifornimenti, pista corta e ponte aereo per l'isola con il quadrimotore.
+
+I bersagli da intercettare sono aerei veri che volano lungo la loro rotta: distanza, direzione e quota
+compaiono in alto e sulla mappa.
 
 ## Installazione (Windows)
 

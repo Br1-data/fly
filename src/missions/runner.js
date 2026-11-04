@@ -1,5 +1,5 @@
 import { FT, NM } from '../core/units.js';
-import { clamp, wrap180 } from '../core/math.js';
+import { clamp, wrap180, RAD } from '../core/math.js';
 import { findRunwayEnd } from '../world/world-data.js';
 
 // Segment proximity catches fast aircraft crossing a gate between rendered frames.
@@ -22,6 +22,9 @@ export class MissionRunner {
     this.hint = '';
     this._hold = 0;
     this._roll = 0;
+    this._loop = 0;
+    this._objTime = 0;
+    this._target = null;
     this._unsafe = 0;
     this._failure = new Set();
     this._lastLanding = null;
@@ -51,18 +54,54 @@ export class MissionRunner {
     if (!fm.onGround && (fm.overspeed || fm.stallWarning)) this._unsafe += dt;
     const o = this.objectives[this.index];
     const pos = this.position();
+    // Timed objectives (scramble, time-to-climb) fail once their window has passed.
+    this._objTime += dt;
+    if (o.within && this._objTime > o.within) return this.finish(false, `Tempo scaduto: «${o.text}» andava completato entro ${o.within} s.`);
     let done = false;
     switch (o.type) {
       case 'climb':
-        done = !fm.onGround && fm.aglFt >= o.aglFt;
+        done = !fm.onGround && (o.altFt ? fm.altFt >= o.altFt : fm.aglFt >= o.aglFt);
         break;
+      case 'speed': {
+        const fast = (!o.minMach || fm.mach >= o.minMach) && (!o.minKt || fm.iasKt >= o.minKt);
+        const band = (!o.minAltFt || fm.altFt >= o.minAltFt) && (!o.maxAltFt || fm.altFt <= o.maxAltFt);
+        const dry = !o.noAfterburner || fm.engines.every((e) => !(e.afterburner > 0.02));
+        done = this.hold(!fm.onGround && fast && band && dry, o.duration || 0.01, dt);
+        break;
+      }
+      case 'loop': {
+        // Net pitch rotation about the wings, with the wings roughly level throughout.
+        if (fm.aglFt < o.minAglFt || fm.onGround) this._loop = 0;
+        else this._loop += fm.omega.y * dt * RAD;
+        done = this._loop >= 340 && Math.abs(fm.pitch) < 30 && (Math.abs(fm.roll) < 45 || Math.abs(fm.roll) > 135);
+        break;
+      }
+      case 'inverted':
+        done = this.hold(!fm.onGround && Math.abs(fm.roll) > 150 && fm.aglFt >= (o.minAglFt || 0) && (!o.altFt || Math.abs(fm.altFt - o.altFt) <= o.toleranceFt), o.duration, dt);
+        break;
+      case 'gload':
+        done = this.hold(!fm.onGround && fm.nz >= o.minG && fm.aglFt >= (o.minAglFt || 0), o.duration, dt);
+        break;
+      case 'intercept': {
+        const t = this.target(dt);
+        const dn = pos.n - t.n, de = pos.e - t.e, dz = pos.alt - t.alt;
+        const range = Math.hypot(dn, de, dz);
+        const h = t.heading / RAD;
+        const behind = (dn * Math.cos(h) + de * Math.sin(h)) / Math.max(range, 1) < -0.5;
+        t.range = range;
+        done = this.hold(!fm.onGround && range <= o.range && (!o.behind || behind), o.duration, dt);
+        break;
+      }
       case 'hold':
         done = this.hold(!fm.onGround && Math.abs(fm.altFt - o.altFt) <= o.toleranceFt && Math.abs(fm.roll) < 15 && Math.abs(fm.vs) < 4, o.duration, dt);
         break;
       case 'waypoint': {
         const tuned = !o.frequency || Math.abs(sim.nav1.active - o.frequency) < 0.005;
-        const level = !o.toleranceFt || Math.abs(fm.altFt - o.alt / FT) <= o.toleranceFt;
-        done = !fm.onGround && tuned && level && segmentDistance(this._lastPos, pos, o) <= o.radius;
+        const level = (!o.toleranceFt || Math.abs(fm.altFt - o.alt / FT) <= o.toleranceFt) && (!o.maxAglFt || fm.aglFt <= o.maxAglFt);
+        const speed = (!o.minKt || fm.iasKt >= o.minKt) && (!o.maxKt || fm.iasKt <= o.maxKt);
+        // Low-level gates are judged in plan view; the altitude window is checked above.
+        const flat = o.horizontal ? { ...o, alt: pos.alt } : o;
+        done = !fm.onGround && tuned && level && speed && segmentDistance(this._lastPos, pos, flat) <= o.radius;
         break;
       }
       case 'systems':
@@ -123,11 +162,32 @@ export class MissionRunner {
     else if (ev.type === 'touchdown' && ev.data !== this._observedLanding) this.recordLanding(ev.data);
   }
 
+  /** Moving target of an intercept objective: straight legs or a steady turn. */
+  target(dt = 0) {
+    const o = this.objectives[this.index];
+    if (!this._target) {
+      if (!o?.target) return null;
+      const t = o.target;
+      this._target = { n: t.n, e: t.e, alt: t.altFt * FT, heading: t.heading, speed: t.speedKt * 0.514444, turn: t.turnRate || 0, model: t.model || 'jet', range: Infinity };
+    }
+    const t = this._target;
+    if (dt > 0) {
+      t.heading = (t.heading + t.turn * dt + 360) % 360;
+      const h = t.heading / RAD;
+      t.n += Math.cos(h) * t.speed * dt;
+      t.e += Math.sin(h) * t.speed * dt;
+    }
+    return t;
+  }
+
   advance() {
     this.objectives[this.index].state = 'done';
     this.index++;
     this._hold = 0;
     this._roll = 0;
+    this._loop = 0;
+    this._objTime = 0;
+    this._target = null;
     this._landingAccepted = false;
     if (this.index === this.objectives.length) this.finish(true, 'Obiettivi completati. Ottimo lavoro!');
     else this.objectives[this.index].state = 'active';
@@ -140,16 +200,29 @@ export class MissionRunner {
       const dn = o.n - fm.pos.x, de = o.e - fm.pos.y;
       const bearing = (Math.atan2(de, dn) * 180 / Math.PI + 360) % 360;
       this.hint = `${o.text}: ${(Math.hypot(dn, de) / NM).toFixed(1)} NM per ${Math.round(bearing).toString().padStart(3, '0')}° · ${Math.round(o.alt / FT)} ft`;
-    } else if (o.duration) this.hint = `${o.text} · ${Math.floor(this._hold)}/${o.duration} s consecutivi`;
+    } else if (o.type === 'intercept') {
+      const t = this.target(), dn = t.n - fm.pos.x, de = t.e - fm.pos.y;
+      const bearing = (Math.atan2(de, dn) * RAD + 360) % 360;
+      const dist = Number.isFinite(t.range) ? t.range : Math.hypot(dn, de);
+      this.hint = `Bersaglio: ${(dist / NM).toFixed(1)} NM per ${Math.round(bearing).toString().padStart(3, '0')}° · ${Math.round(t.alt / FT)} ft · avvicinati entro ${o.range} m${o.behind ? ' in coda' : ''} · ${Math.floor(this._hold)}/${o.duration} s`;
+    } else if (o.type === 'speed') this.hint = `${o.text} · ora Mach ${fm.mach.toFixed(2)} · ${Math.round(fm.iasKt)} kt${o.duration ? ` · ${Math.floor(this._hold)}/${o.duration} s` : ''}`;
+    else if (o.type === 'gload') this.hint = `${o.text} · ora ${fm.nz.toFixed(1)} g · ${Math.floor(this._hold)}/${o.duration} s`;
+    else if (o.duration) this.hint = `${o.text} · ${Math.floor(this._hold)}/${o.duration} s consecutivi`;
     else if (o.type === 'roll') this.hint = `Rotazione: ${Math.round(Math.abs(this._roll))}° / 360° · Quota minima ${o.minAglFt} ft AGL`;
+    else if (o.type === 'loop') this.hint = `Looping: ${Math.round(Math.max(0, this._loop))}° / 360° · tira la cloche, ali livellate · minimo ${o.minAglFt} ft AGL`;
     else if (o.type === 'land') this.hint = `Pista ${o.runway} di ${o.airport} · ${o.maxAlong ? `contatto entro ${o.maxAlong} m · ` : ''}K: checklist · M: mappa`;
-    else this.hint = `${o.text} · Quota attuale ${Math.round(fm.aglFt)} ft AGL`;
+    else this.hint = `${o.text} · Quota attuale ${Math.round(o.altFt ? fm.altFt : fm.aglFt)} ft${o.altFt ? '' : ' AGL'}`;
+    if (o.within) this.hint += ` · ${Math.max(0, Math.ceil(o.within - this._objTime))} s rimasti`;
   }
 
   getMarkers() {
     return this.objectives.flatMap((o, i) => {
-      if (o.type === 'waypoint') return [{ type: this.mission.id === 'percorso-anelli' ? 'ring' : 'waypoint', n: o.n, e: o.e, alt: o.alt,
-        radius: o.radius, heading: this.mission.setup.start.heading || 0, active: i === this.index, done: o.state === 'done' }];
+      if (o.type === 'waypoint') return [{ type: o.ring || this.mission.id === 'percorso-anelli' ? 'ring' : 'waypoint', n: o.n, e: o.e, alt: o.alt,
+        radius: o.radius, heading: o.heading ?? this.mission.setup.start.heading ?? 0, active: i === this.index, done: o.state === 'done' }];
+      if (o.type === 'intercept' && i === this.index) {
+        const t = this.target();
+        return [{ type: 'target', n: t.n, e: t.e, alt: t.alt, heading: t.heading, model: t.model, radius: 60, active: true, done: false }];
+      }
       if (o.type === 'land' && i === this.index) {
         const end = findRunwayEnd(o.airport, o.runway);
         return end ? [{ type: 'gate', n: end.thrN + end.dirN * 200, e: end.thrE + end.dirE * 200, alt: end.elev + 25, radius: end.width, heading: end.heading, active: true, done: false }] : [];

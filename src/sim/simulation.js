@@ -7,7 +7,7 @@ import { Atmosphere, WEATHER_PRESETS } from './atmosphere.js';
 import { Autopilot } from './autopilot.js';
 import { NavRadio, AdfRadio, Gps, markerAt, atisText, airportByAtis } from './navigation.js';
 import { Instruments } from './instruments.js';
-import { getAircraft } from './aircraft/index.js';
+import { getAircraft, isLarge } from './aircraft/index.js';
 import { getTerrain } from '../world/terrain-height.js';
 import { findAirport, findRunwayEnd, airportLayouts, runwayGeometry } from '../world/world-data.js';
 
@@ -91,13 +91,14 @@ export class Simulation {
     fm.systems.infiniteFuel = this.settings.unlimitedFuel;
     fm.updateMass();
     for (const e of fm.engines) e.reset(running, this.atm.sample(0).T);
-    if (fm.fcs) fm.fcs.mode = this.settings.fbwNormalLaw ? 'normal' : 'direct';
+    // Unstable fighters cannot be flown without their flight-control computers.
+    if (fm.fcs) fm.fcs.mode = this.settings.fbwNormalLaw || def.fbw.law === 'fighter' ? 'normal' : 'direct';
     this.engineMaster = fm.engines.map(() => running);
     fm.systems.engMaster = this.engineMaster;
     this.pilot.throttle = 0;
     this.pilot.mixture = running ? 1 : 0;
     if (def.engines[0].type === 'piston' && !running) {
-      fm.engines[0].mixture = 0;
+      for (const en of fm.engines) en.mixture = 0;
     }
 
     // ---- position ----
@@ -114,7 +115,7 @@ export class Simulation {
       this.runwayEnd = end;
       hdg = end.heading;
       if (s.type === 'runway') {
-        const off = def.id === 'airliner' ? 70 : 35;
+        const off = isLarge(def) ? 70 : 35;
         n = end.thrN + end.dirN * off;
         e = end.thrE + end.dirE * off;
       } else {
@@ -152,11 +153,13 @@ export class Simulation {
       fm.input.elevTrim = r.trim;
       if (fm.fcs && def.controls.trimType === 'stab') fm.defl.stab = r.trim >= 0 ? r.trim * def.controls.stabUp * DEG : r.trim * def.controls.stabDown * DEG;
       fm.systems.parkingBrake = false;
+      // Conventional controls: trim out propeller torque and slipstream like a pilot would.
+      if (!fm.fcs && def.engines[0].type === 'piston') fm.trimLateral();
       // add wind so the aircraft keeps its airspeed
       this.atm.windAt(1000, alt, fm.wind);
       fm.vel.add(fm.wind);
     } else {
-      fm.input.elevTrim = def.id === 'trainer' ? 0.15 : def.id === 'jet' ? 0.25 : 0.35;
+      fm.input.elevTrim = def.takeoffTrim ?? 0.25;
       fm.placeOnGround({ n, e, heading: hdg });
       fm.systems.parkingBrake = s.type === 'parking' || !running || s.parkingBrake === true;
     }
@@ -171,7 +174,7 @@ export class Simulation {
     }
     this.ap.hdgBug = Math.round(fm.heading);
     this.ap.altSel = Math.round(((s.apAltFt ?? (inAir ? fm.altFt : ap.elev / FT + 3000)) / 100)) * 100;
-    this.ap.spdSel = def.id === 'airliner' ? (inAir ? Math.round(speed / KT) : 250) : def.speeds.cruise;
+    this.ap.spdSel = def.panel === 'airliner' ? (inAir ? Math.round(speed / KT) : 250) : def.speeds.cruise;
     if (ap.atis) this.com1.active = ap.atis;
     this.gps.setPlan(opts.route || []);
     this.messages.length = 0;
@@ -238,16 +241,17 @@ export class Simulation {
         for (const e of fm.engines) if (e.type === 'piston') e.carbHeat = toggle(e.carbHeat);
         break;
       case 'magnetos': {
-        const e = fm.engines[0];
-        if (e.type !== 'piston') break;
-        if (arg === 'inc') e.magnetos = Math.min(4, e.magnetos + 1);
-        else if (arg === 'dec') e.magnetos = Math.max(0, e.magnetos - 1);
-        else e.magnetos = clamp(arg | 0, 0, 4);
+        // Twins: the key switches act on every piston engine together.
+        for (const e of fm.engines) {
+          if (e.type !== 'piston') continue;
+          if (arg === 'inc') e.magnetos = Math.min(4, e.magnetos + 1);
+          else if (arg === 'dec') e.magnetos = Math.max(0, e.magnetos - 1);
+          else e.magnetos = clamp(arg | 0, 0, 4);
+        }
         break;
       }
       case 'magnetoRelease': {
-        const e = fm.engines[0];
-        if (e.type === 'piston' && e.magnetos === 4) e.magnetos = 3;
+        for (const e of fm.engines) if (e.type === 'piston' && e.magnetos === 4) e.magnetos = 3;
         break;
       }
       case 'mixture':
@@ -317,7 +321,7 @@ export class Simulation {
           this.message(sys.spoilersArmed ? 'Spoiler armati' : 'Spoiler disarmati', 'info', 1.5);
         } else if (typeof arg === 'number') sys.spoilerLever = clamp(arg, 0, 1);
         else {
-          sys.spoilerLever = sys.spoilerLever > 0.1 ? 0 : def.id === 'airliner' ? 0.5 : 1;
+          sys.spoilerLever = sys.spoilerLever > 0.1 ? 0 : def.panel === 'airliner' ? 0.5 : 1;
           sys.spoilersArmed = false;
           this.message(sys.spoilerLever > 0 ? 'Aerofreni estesi' : 'Aerofreni retratti', 'info', 1.5);
         }
@@ -342,7 +346,8 @@ export class Simulation {
         sys.engineStartSel = arg === undefined ? (sys.engineStartSel === 'ign' ? 'norm' : 'ign') : arg;
         break;
       case 'starter':
-        this._starterTimer = 25;
+        // Hold the starter until the slowest engine can reach idle (light-off + spool-up).
+        this._starterTimer = Math.max(25, ...def.engines.map((e) => (e.startTime || 20) * 1.6 + 12));
         break;
       case 'smoke':
         if (def.controls.smoke) {
@@ -481,8 +486,8 @@ export class Simulation {
       S(1.2, () => this.command('fuelSelector', 'both'), 'Selettore carburante BOTH');
       S(1.8, () => (this.pilot.mixture = 1), 'Miscela RICCA');
       S(2.4, () => (this.pilot.throttle = 0.1), 'Manetta 10%');
-      S(3.0, () => this.command('magnetos', 4), 'Avviamento...');
-      S(3.0, () => fm.engines[0].running, null, true);
+      S(3.0, () => this.command('magnetos', 4), fm.engines.length > 1 ? 'Avviamento motori...' : 'Avviamento...');
+      S(3.0, () => fm.engines.every((en) => en.running), null, true);
       S(0.4, () => this.command('magnetos', 3), 'Magneti BOTH');
       S(1.0, () => this.command('avionics', true), 'Avionica ON');
       S(1.6, () => this.command('light', { which: 'nav', value: true }), 'Luci di navigazione ON');
@@ -495,10 +500,11 @@ export class Simulation {
       S(0.5, () => this.command('apuBleed', true), 'APU BLEED ON');
       S(1.0, () => this.command('alternator', true), 'Generatori ON');
       S(1.5, () => this.command('engineStartSel', 'ign'), 'ENG MODE: IGN/START');
-      S(1.5, () => this.command('engineMaster', { index: 1, value: true }), 'ENG 2 MASTER ON');
-      S(1.0, () => fm.engines[1].running, null, true);
-      S(1.0, () => this.command('engineMaster', { index: 0, value: true }), 'ENG 1 MASTER ON');
-      S(1.0, () => fm.engines[0].running, null, true);
+      // Start order of the type: right engine(s) first, like the real procedure.
+      for (let i = fm.engines.length - 1; i >= 0; i--) {
+        S(i === fm.engines.length - 1 ? 1.5 : 1.0, () => this.command('engineMaster', { index: i, value: true }), `ENG ${i + 1} MASTER ON`);
+        S(1.0, () => fm.engines[i].running, null, true);
+      }
       S(1.0, () => this.command('engineStartSel', 'norm'), 'ENG MODE: NORM');
       S(1.0, () => this.command('apuBleed', false), 'APU BLEED OFF');
       S(0.5, () => this.command('avionics', true), 'Avionica ON');
@@ -506,9 +512,9 @@ export class Simulation {
     } else {
       S(0, () => this.command('battery', true), 'Batteria ON');
       S(0.5, () => this.command('light', { which: 'beacon', value: true }), 'Anticollisione ON');
-      S(1.0, () => this.command('engineMaster', { index: 0, value: true }), 'Leva carburante APERTA');
-      S(1.0, () => this.command('starter'), 'Avviamento motore...');
-      S(1.0, () => fm.engines[0].running, null, true);
+      S(1.0, () => fm.engines.forEach((_, i) => this.command('engineMaster', { index: i, value: true })), fm.engines.length > 1 ? 'Leve carburante APERTE' : 'Leva carburante APERTA');
+      S(1.0, () => this.command('starter'), fm.engines.length > 1 ? 'Avviamento motori...' : 'Avviamento motore...');
+      S(1.0, () => fm.engines.every((en) => en.running), null, true);
       S(1.0, () => this.command('alternator', true), 'Generatore ON');
       S(0.5, () => this.command('avionics', true), 'Avionica ON');
       S(0.5, () => this.command('light', { which: 'nav', value: true }), 'Motore avviato');
@@ -597,7 +603,13 @@ export class Simulation {
         if (f.system === 'engine') {
           for (const e of fm.engines) e.failed = true;
           this.events.push({ type: 'failure', what: 'engine' });
-          this.message('AVARIA MOTORE!', 'alert', 6);
+          this.message(fm.engines.length > 1 ? 'AVARIA MOTORI!' : 'AVARIA MOTORE!', 'alert', 6);
+        } else if (/^engine\d$/.test(f.system) && fm.engines[+f.system.slice(6) - 1]) {
+          // Single-engine failure on multi-engine aircraft (engine1 = left/first engine).
+          const index = +f.system.slice(6) - 1;
+          fm.engines[index].failed = true;
+          this.events.push({ type: 'failure', what: f.system });
+          this.message(`AVARIA ${fm.engines[index].p.name?.toUpperCase() || `MOTORE ${index + 1}`}!`, 'alert', 6);
         } else if (f.system === 'vacuum') {
           sys.s.vacuum = false;
           this.message('Avaria impianto a depressione', 'alert', 5);

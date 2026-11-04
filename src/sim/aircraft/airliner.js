@@ -26,6 +26,8 @@ export default {
   panel: 'airliner',
   model: 'airliner',
   sound: 'turbofan',
+  minRunway: 1800,
+  takeoffTrim: 0.35,
   mass: { empty: 42600, payload: 13500, reference: 64000, mtow: 78000, mlw: 66000 },
   inertia: [1.25e6, 3.3e6, 4.45e6, 0],
   cgHeight: 3.4,

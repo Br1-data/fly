@@ -1,6 +1,13 @@
 // Missions list with briefing panel.
-import { h, button, clear, stars } from './dom.js';
-import { getAircraft } from '../sim/aircraft/index.js';
+import { h, button, clear, stars, segmented, select } from './dom.js';
+import { getAircraft, AIRCRAFT_LIST } from '../sim/aircraft/index.js';
+
+const FILTERS = [
+  { value: 'all', label: 'Tutte' },
+  { value: 'civil', label: 'Civili' },
+  { value: 'military', label: 'Militari' },
+  { value: 'todo', label: 'Da fare' },
+];
 
 export class MissionsScreen {
   constructor(app, { back, start }) {
@@ -15,18 +22,36 @@ export class MissionsScreen {
     this.results = results;
     this.list = h('div.mission-list');
     this.brief = h('div.mission-brief');
+    this.filter = 'all';
+    this.aircraft = '';
+    const used = AIRCRAFT_LIST.filter((d) => this.missions.some((m) => m.aircraft === d.id));
+    this.filters = h('div.mission-filters',
+      segmented(FILTERS, this.filter, (v) => { this.filter = v; this.render(); }),
+      select({ label: 'Aereo', options: [{ value: '', label: 'Tutti gli aerei' }, ...used.map((d) => ({ value: d.id, label: d.name }))], value: '', onChange: (v) => { this.aircraft = v; this.render(); } }));
     this.start = start;
     this.el = h(
       'div.screen.missions',
-      h('div.panel.full', h('header.panel-head', button('← Menu', back, 'ghost'), h('h1', 'Missioni'), h('div.spacer'), h('span.muted', `${Object.keys(results).length} / ${this.missions.length} completate`)), h('div.missions-grid', this.list, this.brief)),
+      h('div.panel.full', h('header.panel-head', button('← Menu', back, 'ghost'), h('h1', 'Missioni'), h('div.spacer'), h('span.muted', `${Object.keys(results).length} / ${this.missions.length} completate`)), h('div.missions-grid', h('div.mission-side', this.filters, this.list), this.brief)),
     );
     this.selected = this.missions[0]?.id;
     this.render();
   }
 
+  visible() {
+    return this.missions.filter((m) => {
+      const role = getAircraft(m.aircraft).role || 'civil';
+      if (this.aircraft && m.aircraft !== this.aircraft) return false;
+      if (this.filter === 'todo') return !this.results[m.id];
+      return this.filter === 'all' || this.filter === role;
+    });
+  }
+
   render() {
     clear(this.list);
-    for (const m of this.missions) {
+    const shown = this.visible();
+    if (!shown.length) this.list.appendChild(h('p.muted', 'Nessuna missione con questi filtri.'));
+    if (shown.length && !shown.some((m) => m.id === this.selected)) this.selected = shown[0].id;
+    for (const m of shown) {
       const r = this.results[m.id];
       const def = getAircraft(m.aircraft);
       this.list.appendChild(

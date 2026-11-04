@@ -43,9 +43,11 @@ export class PistonEngine {
     this.propAngle = 0;
     this.slipVelocity = 0;
     this._lastAmbient = 288;
+    this.bladePitch = p.pitch ?? 1; // relative blade pitch: fixed, or set by a constant-speed governor
   }
 
   reset(running, amb = 288) {
+    this.bladePitch = this.p.pitch ?? 1;
     this.running = running;
     this.failed = false;
     this.carbIce = 0;
@@ -79,7 +81,8 @@ export class PistonEngine {
     const V = Math.max(env.vAxial, 0);
 
     // ---- induction / mixture ----
-    const delta = env.p / P0;
+    // Superchargers hold sea-level manifold pressure up to their critical altitude.
+    const delta = Math.min(1, (env.p / P0) * (p.boost || 1));
     const tempCorr = Math.sqrt(T0 / env.T);
     const thr = clamp(this.throttle, 0, 1);
     const airFrac = p.idleFrac + (1 - p.idleFrac) * Math.pow(thr, 1.15);
@@ -126,19 +129,27 @@ export class PistonEngine {
     }
     this.power = qComb * this.omega;
 
-    // propeller
+    // propeller. A constant-speed governor coarsens the blades to hold its rpm: the curves
+    // shift to a higher advance ratio (ct ∝ s², cp ∝ s³ keeps the efficiency curve's shape).
+    const gov = p.governor;
+    if (gov) {
+      const err = (this.rpm - gov.rpm) / gov.rpm;
+      this.bladePitch = clamp(this.bladePitch + err * (gov.rate || 4) * dt, p.pitch ?? 1, gov.maxPitch || 2.6);
+    }
+    const s = this.bladePitch;
     let J = n > 0.5 ? V / (n * D) : 10;
     let T, Qp;
     const JMAX = 2.0;
-    if (J <= JMAX) {
-      T = table1(p.ct, J) * env.rho * n * n * D ** 4;
-      Qp = (table1(p.cp, J) * env.rho * n * n * D ** 5) / TWO_PI;
+    const Js = J / s;
+    if (Js <= JMAX) {
+      T = table1(p.ct, Js) * s * s * env.rho * n * n * D ** 4;
+      Qp = (table1(p.cp, Js) * s * s * s * env.rho * n * n * D ** 5) / TWO_PI;
     } else {
       const ctS = table1(p.ct, JMAX) / (JMAX * JMAX);
       const cpS = table1(p.cp, JMAX) / (JMAX * JMAX);
       T = ctS * env.rho * V * V * D * D;
-      Qp = (cpS * env.rho * V * V * D ** 3) / TWO_PI;
-      J = JMAX;
+      Qp = (cpS * s * env.rho * V * V * D ** 3) / TWO_PI;
+      J = JMAX * s;
     }
 
     // friction + compression, starter
@@ -224,12 +235,15 @@ export class JetEngine {
     this.propTorque = 0;
     this.engineTorque = 0;
     this.omega = 0;
+    this.afterburner = 0; // 0 .. 1 reheat stage (fighters)
+    this.rpm = 0; // propeller rpm (turboprops)
   }
 
   reset(running, amb = 288) {
     this.running = running;
     this.failed = false;
     this.reverser = 0;
+    this.afterburner = 0;
     if (running) {
       this.n2 = this.p.idleN2;
       this.n1 = this.n1FromN2(this.n2);
@@ -294,9 +308,11 @@ export class JetEngine {
     this.reverser = moveTowards(this.reverser, revTarget, 0.6, dt);
     if (this.reverser > 0.05 && this.reverser < 0.95) thr = 0;
 
+    // With an afterburner the throttle reaches full dry power at the detent; beyond it, reheat.
+    const dry = p.afterburner ? clamp(thr / p.afterburner.detent, 0, 1) : thr;
     if (this.running) {
       const flightIdle = env.onGround ? p.idleN2 : p.idleN2 + 3;
-      const target = flightIdle + (100.5 - flightIdle) * thr;
+      const target = flightIdle + (100.5 - flightIdle) * dry;
       // spool time constant grows at low rpm
       const tau = p.spoolTau * (1 + 2.2 * clamp((80 - this.n2) / 30, 0, 1));
       this.n2 = approach(this.n2, target, dt, tau);
@@ -312,8 +328,28 @@ export class JetEngine {
     if (!this.running) tf *= 0.2;
     const sigma = env.rho / RHO0;
     const M = env.mach;
-    const lapse = Math.pow(sigma, p.densityExp) * Math.max(0.2, 1 - p.machLapse * M + 0.25 * M * M);
-    let T = p.maxThrust * tf * lapse;
+    let T;
+    if (p.prop) {
+      // Turboprop: the gas generator delivers shaft power; the propeller turns it into
+      // thrust = P·η / V, capped by its static thrust. Thrust falls with airspeed.
+      const V = Math.max(M * Math.sqrt(401.9 * amb), 1);
+      const power = p.prop.power * tf * Math.pow(sigma, p.densityExp);
+      this._shaftPower = power;
+      T = Math.min(p.maxThrust * tf * Math.pow(sigma, p.densityExp * 0.7), (power * p.prop.eta) / V);
+      this.rpm = approach(this.rpm, this.running ? p.prop.rpm * (0.72 + 0.28 * clamp(thr, 0, 1)) : this.n1 * p.prop.rpm / 140, dt, 1.2);
+    } else {
+      const lapse = Math.pow(sigma, p.densityExp) * Math.max(0.2, 1 - p.machLapse * M + 0.25 * M * M);
+      T = p.maxThrust * tf * lapse;
+      // Afterburner: the last part of the throttle travel lights the reheat once the core is
+      // at full power. It adds thrust (rising with Mach, as ram drag recovers) and burns fuel.
+      const ab = p.afterburner;
+      const abTarget = ab && this.running && thr > ab.detent ? ((thr - ab.detent) / (1 - ab.detent)) * clamp((this.n1 - 88) / 8, 0, 1) : 0;
+      this.afterburner = approach(this.afterburner, abTarget, dt, abTarget > this.afterburner ? 0.35 : 0.15);
+      if (ab && this.afterburner > 0.01) {
+        this._abThrust = ab.thrust * this.afterburner * Math.pow(sigma, p.densityExp * 0.9) * (1 + 0.35 * M * M);
+        T += this._abThrust;
+      } else this._abThrust = 0;
+    }
     if (this.reverser > 0.95) T = -T * p.reverseFraction;
     else if (this.reverser > 0.05) T *= 0.3;
     this.thrust = T;
@@ -321,7 +357,9 @@ export class JetEngine {
     // fuel flow (kg/s)
     if (this.running) {
       const tsfc = p.tsfc0 + p.tsfcMach * M; // lb/(lbf h)
-      const ff = Math.abs(T) * tsfc * 2.832e-5;
+      const reheat = this._abThrust || 0;
+      const ff = p.prop ? this._shaftPower * (p.prop.bsfc || 8.5e-8)
+        : (Math.abs(T) - reheat) * tsfc * 2.832e-5 + reheat * (p.afterburner?.tsfc || 2) * 2.832e-5;
       this.fuelFlow = Math.max(ff, p.ffIdle * (0.5 + 0.5 * sigma));
     } else if (this.startPhase === 'light') this.fuelFlow = p.ffIdle * 0.6;
     else this.fuelFlow = 0;

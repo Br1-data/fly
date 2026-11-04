@@ -7,11 +7,12 @@ import { buildAirports, buildCities } from './airports.js';
 import { Sky, atmosphereUniforms } from './atmosphere.js';
 import { WaterSurfaces } from './water.js';
 import { CloudLayer } from './clouds.js';
-import { glowUniforms } from './glow.js';
+import { glowUniforms, createGlowMaterial } from './glow.js';
 import { sceneryUniforms } from './materials.js';
 import { getFlareTextures } from './textures.js';
 import { airportLayouts, LAKES } from '../world/world-data.js';
 import { getTerrain } from '../world/terrain-height.js';
+import { isLarge, getAircraft } from '../sim/aircraft/index.js';
 import { clamp, DEG, hash2, smoothstep } from '../core/math.js';
 import { deviceClass } from '../core/device.js';
 
@@ -308,7 +309,42 @@ export class SceneRenderer {
     onProgress(1);
   }
 
+  /** Intercept target: a real aircraft model flying along the mission's track. */
+  _updateTarget(marker) {
+    if (!marker) {
+      if (this.targetModel) this.targetModel.visible = false;
+      return;
+    }
+    if (!this.targetModel || this.targetModel.userData.modelId !== marker.model) {
+      if (this.targetModel) {
+        this.scene.remove(this.targetModel);
+        disposeObject(this.targetModel);
+      }
+      const model = createAircraft(getAircraft(marker.model));
+      model.userData.gear.visible = false;
+      model.userData.modelId = marker.model;
+      // A bright beacon keeps the target visible from several miles away.
+      const glow = createGlowMaterial({ worldSize: 26, minPx: 7, maxPx: 60 });
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute([1, 0.35, 0.2], 3));
+      geometry.setAttribute('aPhase', new THREE.Float32BufferAttribute([0], 1));
+      const beacon = new THREE.Points(geometry, glow);
+      beacon.frustumCulled = false;
+      beacon.renderOrder = 12;
+      model.add(beacon);
+      this.targetModel = model;
+      this.scene.add(model);
+    }
+    const model = this.targetModel;
+    model.visible = true;
+    groundToThree(marker.n, marker.e, marker.alt, model.position);
+    model.rotation.set(0, -(marker.heading || 0) * DEG, 0);
+  }
+
   setMarkers(markers = []) {
+    this._updateTarget(markers.find((m) => m.type === 'target' && !m.done));
+    markers = markers.filter((m) => m.type !== 'target');
     const key = JSON.stringify(markers);
     if (key === this.markerKey) return;
     this.markerKey = key;
@@ -349,16 +385,27 @@ export class SceneRenderer {
     const { gear, propeller, propDisc, lights, controls } = this.aircraft.userData;
     gear.scale.y = Math.max(0.02, fm.systems.gearPos);
     gear.visible = fm.systems.gearPos > 0.02;
-    const rpm = fm.engines[0]?.rpm || 0;
-    if (propeller) {
-      propeller.rotation.z += rpm * dt * Math.PI / 30;
+    // Each propeller follows its own engine (twins, four-engine turboprops).
+    const props = this.aircraft.userData.propellers || (propeller ? [{ propeller, propDisc, engine: 0 }] : []);
+    for (const prop of props) {
+      const rpm = fm.engines[prop.engine]?.rpm || 0;
+      prop.propeller.rotation.z += (prop.spin || 1) * rpm * dt * Math.PI / 30;
       // Fast propellers blur into a translucent disc instead of strobing.
       const blur = smoothstep(500, 1100, rpm);
-      if (propDisc) {
-        propDisc.visible = blur > 0.02;
-        propDisc.material.opacity = 0.32 * blur;
+      if (prop.propDisc) {
+        prop.propDisc.visible = blur > 0.02;
+        prop.propDisc.material.opacity = 0.32 * blur;
       }
-      propeller.userData.blades.visible = blur < 0.98;
+      prop.propeller.userData.blades.visible = blur < 0.98;
+    }
+    // Afterburner flames and heat haze scale with each engine's reheat stage.
+    for (const flame of this.aircraft.userData.flames || []) {
+      const e = fm.engines[flame.engine];
+      const ab = e?.afterburner || 0, core = e?.running ? clamp((e.n1 - 60) / 40, 0, 1) : 0;
+      const k = ab > 0.02 ? 0.55 + 0.45 * ab : 0;
+      flame.mesh.visible = k > 0 || core > 0.5;
+      flame.mesh.scale.set(0.6 + 0.4 * k, 0.6 + 0.4 * k, 0.3 + k * (1.0 + 0.15 * Math.sin(this.elapsed * 47 + flame.engine)));
+      flame.mesh.material.opacity = Math.max(k * 0.85, core * 0.12);
     }
     for (const control of controls) control.pivot.rotation.x = control.factor * (control.name === 'flaps' ? fm.systems.flaps : fm.defl[control.name] || 0);
     for (const light of lights) {
@@ -405,7 +452,7 @@ export class SceneRenderer {
       const ground = getTerrain().groundInfo(-this.camera.position.z, this.camera.position.x).h;
       this.camera.position.y = Math.max(this.camera.position.y, ground + 2);
       this.target.copy(this.position);
-      this.target.y += this.def.id === 'airliner' ? 1.0 : 0.4;
+      this.target.y += isLarge(this.def) ? 1.0 : 0.4;
       this.camera.lookAt(this.target);
     }
   }

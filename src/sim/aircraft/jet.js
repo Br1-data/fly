@@ -24,6 +24,8 @@ export default {
   panel: 'jet',
   model: 'jet',
   sound: 'turbojet',
+  minRunway: 900,
+  takeoffTrim: 0.25,
   mass: { empty: 3125, payload: 180, reference: 4400, mtow: 5900 },
   inertia: [8000, 17000, 24000, 300],
   cgHeight: 1.33,

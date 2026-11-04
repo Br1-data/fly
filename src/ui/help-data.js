@@ -54,6 +54,9 @@ export const GLOSSARY = [
   entry('RPM', 'Motori', 'Giri al minuto del motore o dell’elica. Nel Falco mostrano la risposta a potenza, velocità e carico dell’elica; rispetta il limite indicato sullo strumento.'),
   entry('N1 / N2', 'Motori', 'Velocità di rotazione delle sezioni del motore a reazione, espresse in percentuale. Aiutano a seguire l’avviamento e la risposta alla manetta; il valore cresce gradualmente.'),
   entry('EGT', 'Motori', 'Exhaust gas temperature: temperatura dei gas di scarico. È utile per controllare il funzionamento del motore e, sul motore a pistoni, l’effetto della regolazione della miscela.'),
+  entry('Postbruciatore', 'Motori', 'Sui caccia (Folgore FX-16, Grifone EF-2) la manetta oltre il 90% inietta carburante nello scarico: la spinta aumenta di circa il 60% e il consumo si quadruplica. Sotto il 90% hai la spinta massima a secco.'),
+  entry('Elica a giri costanti', 'Motori', 'Sul bimotore, sul caccia storico e sull’aereo acrobatico un regolatore cambia il passo delle pale per tenere costanti i giri: la manetta comanda la potenza, l’elica la trasforma in spinta in modo efficiente a ogni velocità.'),
+  entry('Ruotino di coda', 'Pilotaggio', 'Vespa V-51 e Allodola X-300 hanno il ruotino sotto la coda: a terra il muso è alto e copre la vista. In decollo anticipa con il pedale la deriva dovuta alla coppia dell’elica; in atterraggio posati a tre punti e tieni l’asse con il timone.'),
   entry('Inversori di spinta', 'Motori', 'Deviano parte della spinta in avanti per aiutare la decelerazione dopo il contatto, sui velivoli equipaggiati. Tieni premuto Shift+F2 a terra; non sostituiscono i freni delle ruote.'),
 
   entry('AP', 'Autopilota', 'Autopilota: muove i comandi per seguire i modi selezionati. Z lo inserisce o disinserisce. Controlla sempre modi e bersagli: inserire AP non significa che l’aereo seguirà automaticamente qualsiasi rotta.'),

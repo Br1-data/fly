@@ -12,7 +12,12 @@ const START_TYPES = [
   { value: 'final', label: 'Finale' },
 ];
 
-const AIRCRAFT_ICON = { trainer: '🛩', airliner: '✈', jet: '🛦' };
+const AIRCRAFT_ICON = { trainer: '🛩', aerobatic: '🛩', twin: '🛩', bizjet: '✈', airliner: '✈', turboprop: '🛩', jet: '🛦', warbird: '🛩', transport: '✈', fighter: '🛦', eurofighter: '🛦' };
+const ROLES = [
+  { value: 'all', label: 'Tutti' },
+  { value: 'civil', label: 'Civili' },
+  { value: 'military', label: 'Militari' },
+];
 
 export class FreeFlightScreen {
   constructor(app, { back, start }) {
@@ -30,6 +35,7 @@ export class FreeFlightScreen {
       fuel: last?.fuel ?? 0.8,
       coldDark: !!last?.coldDark,
       destination: last?._destination || '',
+      role: 'all',
     };
     if (!WEATHER_PRESETS[this.state.weatherKey] && this.state.weatherKey !== 'custom') this.state.weatherKey = 'sereno';
 
@@ -54,8 +60,19 @@ export class FreeFlightScreen {
 
   renderAircraft() {
     const col = clear(this.acCol);
-    col.appendChild(h('h2', 'Velivolo'));
+    col.appendChild(h('h2', `Velivolo · ${AIRCRAFT_LIST.length} aerei`));
+    col.appendChild(h('div.field.ac-filter', segmented(ROLES, this.state.role, (v) => {
+      this.state.role = v;
+      this.renderAircraft();
+    })));
+    let group = null;
     for (const def of AIRCRAFT_LIST) {
+      const role = def.role || 'civil';
+      if (this.state.role !== 'all' && role !== this.state.role && def.id !== this.state.aircraft) continue;
+      if (role !== group) {
+        group = role;
+        col.appendChild(h('h3.ac-group', role === 'military' ? 'Militari' : 'Civili'));
+      }
       const card = h(
         'button.ac-card' + (def.id === this.state.aircraft ? '.active' : ''),
         { type: 'button', onclick: () => {
@@ -92,8 +109,8 @@ export class FreeFlightScreen {
     );
     const ap = findAirport(st.airport);
     const rw = ap.runways[0];
-    const shortField = rw.length < 1500 && def.id === 'airliner';
-    if (shortField) col.appendChild(h('div.warn-note', `⚠ Pista di ${rw.length} m: troppo corta per l'${def.name}.`));
+    const shortField = rw.length < (def.minRunway || 0);
+    if (shortField) col.appendChild(h('div.warn-note', `⚠ Pista di ${rw.length} m: troppo corta per il ${def.name} (servono circa ${def.minRunway} m).`));
     col.appendChild(h('div.field', h('span.field-label', 'Posizione iniziale'), segmented(START_TYPES, st.startType, (v) => {
       st.startType = v;
       this.renderDeparture();
@@ -255,16 +272,17 @@ export class FreeFlightScreen {
     const end = g.ends.find((e) => e.ident === st.runway) || g.ends[0];
     const start = { type: st.startType, airport: ap.icao, runway: end.ident, parking: st.parking };
     if (st.startType === 'air') {
-      const alt = Math.round((ap.elev / 0.3048 + (def.id === 'airliner' ? 5000 : 3000)) / 100) * 100;
-      const d = def.id === 'airliner' ? 22000 : 12000;
+      const fast = def.speeds.vapp > 110;
+      const alt = Math.round((ap.elev / 0.3048 + (fast ? 5000 : 3000)) / 100) * 100;
+      const d = fast ? 22000 : 12000;
       start.n = end.thrN - end.dirN * d;
       start.e = end.thrE - end.dirE * d;
       start.heading = end.heading;
       start.altitudeFt = alt;
-      start.speedKt = def.id === 'airliner' ? 250 : def.speeds.cruise;
+      start.speedKt = def.panel === 'airliner' ? Math.min(250, def.speeds.cruise) : Math.min(def.speeds.cruise, 350);
       start.apAltFt = alt;
     } else if (st.startType === 'final') {
-      start.distanceNm = def.id === 'airliner' ? 8 : 5;
+      start.distanceNm = def.speeds.vapp > 110 ? 8 : 5;
     }
     const route = [];
     if (st.destination) {

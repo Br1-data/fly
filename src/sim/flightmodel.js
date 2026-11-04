@@ -9,6 +9,13 @@ import { LandingGear } from './gear.js';
 import { Systems } from './systems.js';
 import { impactPressure, casFromQc, indicatedAltitude, P0 } from './atmosphere.js';
 
+/** Supersonic designs: transonic drag rise peaking just above Mach 1, easing off beyond it. */
+function waveRise(mach, mcrit, peak) {
+  if (mach <= mcrit) return 0;
+  const x = Math.min(1, (mach - mcrit) / (1.08 - mcrit));
+  return peak * x * x * (3 - 2 * x) * (mach > 1.08 ? Math.pow(1.08 / mach, 1.2) : 1);
+}
+
 const tmp1 = new V3();
 const tmp2 = new V3();
 const tmp3 = new V3();
@@ -310,15 +317,20 @@ export class FlightModel {
       if (this.gsKt < 40) this.defl.stab = moveTowards(this.defl.stab, this.input.elevTrim * c.stabUp * DEG, 0.5 * DEG, dt);
       return { elevCmd, ailCmd, rudCmd };
     }
+    // Fighter law (F-16/Typhoon class): no bank, pitch-attitude or flare laws; hands-off the
+    // aircraft keeps its flight path in any attitude, inverted included.
+    const fighter = fbw.law === 'fighter';
     // flare mode below 50 ft: stick to pitch-attitude, gentle nose-down bias
-    f.flare = radioAlt < 50 && this.vs < 2 && !this.apEngaged;
+    f.flare = !fighter && radioAlt < 50 && this.vs < 2 && !this.apEngaged;
 
     // ---- pitch: C* = dNz + Vco/g * q
-    const nzCmdBase = Math.cos(theta) / Math.max(Math.cos(phi), 0.5);
+    const cp = Math.cos(phi), ap = Math.abs(phi);
+    const nzCmdBase = !fighter ? Math.cos(theta) / Math.max(cp, 0.5)
+      : Math.cos(theta) * (ap <= 60 * DEG ? 1 / cp : ap < 90 * DEG ? 2 * (90 * DEG - ap) / (30 * DEG) : cp);
     let dnzCmd = pitch >= 0 ? pitch * (fbw.nzMax - 1) : pitch * (1 - fbw.nzMin);
     // pitch attitude protection
-    if (theta > fbw.pitchMax * DEG && dnzCmd > 0) dnzCmd *= Math.max(0, 1 - (theta - fbw.pitchMax * DEG) / (3 * DEG));
-    if (theta < fbw.pitchMin * DEG && dnzCmd < 0) dnzCmd *= Math.max(0, 1 + (theta - fbw.pitchMin * DEG) / (3 * DEG));
+    if (fbw.pitchMax != null && theta > fbw.pitchMax * DEG && dnzCmd > 0) dnzCmd *= Math.max(0, 1 - (theta - fbw.pitchMax * DEG) / (3 * DEG));
+    if (fbw.pitchMin != null && theta < fbw.pitchMin * DEG && dnzCmd < 0) dnzCmd *= Math.max(0, 1 + (theta - fbw.pitchMin * DEG) / (3 * DEG));
     // alpha protection: stick commands alpha above alphaProt
     const alphaDeg = this.alpha * RAD;
     const aProt = fbw.alphaProt,
@@ -333,7 +345,8 @@ export class FlightModel {
     const nz = this.nz;
     // pitch rate expected in a steady coordinated turn is not a pilot demand
     const phiC = clamp(phi, -1.2, 1.2);
-    const qTurn = ((G0 / V) * Math.sin(phiC) * Math.tan(phiC)) * Math.cos(theta);
+    const qTurn = fighter ? (G0 / V) * (nzCmdBase - Math.cos(theta) * cp)
+      : ((G0 / V) * Math.sin(phiC) * Math.tan(phiC)) * Math.cos(theta);
     const cstar = nz - nzCmdBase + (fbw.vco / G0) * (this.omega.y - qTurn);
     let err = dnzCmd - cstar;
     if (f.flare) {
@@ -342,10 +355,12 @@ export class FlightModel {
       err = (thCmd - theta) * 4 - this.omega.y * 1.5;
       f.pitchInt = approach(f.pitchInt, 0, dt, 2);
     }
-    f.pitchInt = clamp(f.pitchInt + err * fbw.pitchKi * dt, -1, 1);
-    elevCmd = clamp(err * fbw.pitchKp + f.pitchInt, -1, 1);
+    // Gain scheduling: control surfaces grow more effective with dynamic pressure.
+    const kq = fbw.qRef ? clamp(fbw.qRef / Math.max(0.5 * this.env.rho * V * V, 1), 0.08, 2.5) : 1;
+    f.pitchInt = clamp(f.pitchInt + err * fbw.pitchKi * kq * dt, -1, 1);
+    elevCmd = clamp(err * fbw.pitchKp * kq + f.pitchInt, -1, 1);
     // auto-trim: THS slowly takes over the elevator's average deflection
-    if (!f.flare && Math.abs(phi) < 33 * DEG) {
+    if (!f.flare && Math.abs(phi) < (fighter ? 70 : 33) * DEG) {
       const stabRate = c.stabRate * DEG;
       const target = this.defl.stab + this.defl.elevator * 0.9;
       this.defl.stab = clamp(moveTowards(this.defl.stab, target, stabRate * (0.2 + Math.abs(elevCmd)), dt), -c.stabDown * DEG, c.stabUp * DEG);
@@ -356,20 +371,25 @@ export class FlightModel {
     const pCmdMax = fbw.rollRate * DEG;
     let pCmd = roll * pCmdMax;
     if (Math.abs(roll) < 0.05) {
-      if (Math.abs(f.bankHold) > 33 * DEG) f.bankHold = moveTowards(f.bankHold, Math.sign(f.bankHold) * 33 * DEG, 5 * DEG, dt);
-      pCmd = (f.bankHold - phi) * 1.2;
+      if (!fighter && Math.abs(f.bankHold) > 33 * DEG) f.bankHold = moveTowards(f.bankHold, Math.sign(f.bankHold) * 33 * DEG, 5 * DEG, dt);
+      // Bank hold, measured the short way round (inverted flight wraps through ±180°).
+      let d = f.bankHold - phi;
+      d -= Math.round(d / (2 * Math.PI)) * 2 * Math.PI;
+      pCmd = d * 1.2;
     } else {
       f.bankHold = phi;
-      const lim = fbw.bankMax * DEG;
-      if (pCmd > 0) pCmd = Math.min(pCmd, (lim - phi) * 2);
-      else pCmd = Math.max(pCmd, (-lim - phi) * 2);
+      if (!fighter) {
+        const lim = fbw.bankMax * DEG;
+        if (pCmd > 0) pCmd = Math.min(pCmd, (lim - phi) * 2);
+        else pCmd = Math.max(pCmd, (-lim - phi) * 2);
+      }
     }
     const pErr = pCmd - this.omega.x;
-    f.rollInt = clamp(f.rollInt + pErr * fbw.rollKi * dt, -0.6, 0.6);
-    ailCmd = clamp(pErr * fbw.rollKp + f.rollInt, -1, 1);
+    f.rollInt = clamp(f.rollInt + pErr * fbw.rollKi * kq * dt, -0.6, 0.6);
+    ailCmd = clamp(pErr * fbw.rollKp * kq + f.rollInt, -1, 1);
 
     // ---- yaw: damper + turn coordination + pedals
-    const rCmd = (G0 * Math.tan(clamp(phi, -1.2, 1.2))) / V;
+    const rCmd = fighter ? (G0 * Math.sin(phi) * Math.cos(theta)) / V : (G0 * Math.tan(clamp(phi, -1.2, 1.2))) / V;
     rudCmd = clamp(yaw + (rCmd - this.omega.z) * fbw.yawK - this.beta * fbw.betaK, -1, 1);
     return { elevCmd, ailCmd, rudCmd };
   }
@@ -471,7 +491,8 @@ export class FlightModel {
       cd += (1 - stall) * cl * cl * ind + stall * 1.25 * sa * sa;
       if (s.mcrit) {
         const mc = s.mcrit - 0.08 * Math.abs(cl);
-        if (mach > mc) cd += 20 * (mach - mc) ** 4;
+        if (def.supersonic) cd += waveRise(mach, mc, def.supersonic.wingPeak);
+        else if (mach > mc) cd += 20 * (mach - mc) ** 4;
       }
       cm = (1 - stall) * cm - stall * 0.3 * sa;
       const q = 0.5 * rho * vp2;
@@ -507,7 +528,8 @@ export class FlightModel {
       let f = def.parasiteArea;
       if (def.controls.retractableGear) f += def.gearDragArea * this.gear.position;
       if (def.speedbrakeArea) f += def.speedbrakeArea * sys.spoilers;
-      if (mach > (def.fuselageMcrit || 0.8)) f *= 1 + 20 * (mach - (def.fuselageMcrit || 0.8)) ** 2;
+      if (def.supersonic) f *= 1 + waveRise(mach, def.fuselageMcrit || 0.85, def.supersonic.bodyPeak);
+      else if (mach > (def.fuselageMcrit || 0.8)) f *= 1 + 20 * (mach - (def.fuselageMcrit || 0.8)) ** 2;
       const D = qInf * f;
       F.addScaled(vAir, -D / V);
       // fuselage side force
@@ -525,9 +547,11 @@ export class FlightModel {
       tmp3.crossVectors(ep, tmp2);
       M.add(tmp3);
       if (e.type === 'piston') {
-        // torque reaction (rolls left for a clockwise prop), P-factor
-        M.x -= e.engineTorque * (def.torqueFactor ?? 0.5);
-        M.z -= (def.pFactor || 0) * T * clamp(this.alpha, -0.3, 0.5);
+        // torque reaction (rolls left for a clockwise prop), P-factor; counter-rotating
+        // propellers (rotation -1) on twins cancel each other.
+        const turn = e.p.rotation ?? 1;
+        M.x -= turn * e.engineTorque * (def.torqueFactor ?? 0.5);
+        M.z -= turn * (def.pFactor || 0) * T * clamp(this.alpha, -0.3, 0.5);
       }
     }
 
@@ -774,6 +798,34 @@ export class FlightModel {
    * Trim for straight & level (or given flight path angle) flight at true airspeed V.
    * Solves for alpha, elevator trim and throttle. Returns {ok, alpha, trim, throttle}.
    */
+  /** Aileron and rudder trim cancelling the steady roll and yaw moments (torque, slipstream). */
+  trimLateral() {
+    const c = this.def.controls;
+    const apply = (a, r) => {
+      this.input.ailTrim = clamp(a, -1, 1);
+      this.input.rudTrim = clamp(r, -1, 1);
+      this.defl.aileron = this.input.ailTrim * 0.15 * c.aileron * DEG;
+      this.defl.rudder = this.input.rudTrim * 0.3 * c.rudder * DEG;
+      this._derive();
+      this.computeAero();
+      return [this.mBody.x, this.mBody.z];
+    };
+    let a = 0, r = 0;
+    for (let it = 0; it < 6; it++) {
+      const [mx, mz] = apply(a, r);
+      const h = 0.02;
+      const [mxa, mza] = apply(a + h, r);
+      const [mxr, mzr] = apply(a, r + h);
+      const j11 = (mxa - mx) / h, j12 = (mxr - mx) / h, j21 = (mza - mz) / h, j22 = (mzr - mz) / h;
+      const det = j11 * j22 - j12 * j21;
+      if (!det || !Number.isFinite(det)) break;
+      a = clamp(a - (mx * j22 - mz * j12) / det, -1, 1);
+      r = clamp(r - (j11 * mz - j21 * mx) / det, -1, 1);
+    }
+    apply(a, r);
+    return { aileron: this.input.ailTrim, rudder: this.input.rudTrim };
+  }
+
   trimLevel(V, gammaDeg = 0, opts = {}) {
     const heading = this.heading * DEG;
     const gam = gammaDeg * DEG;
@@ -811,16 +863,17 @@ export class FlightModel {
         if (e.type === 'piston') {
           const env = { rho: this.env.rho, p: this.env.p, T: this.env.T, vAxial: this.vAir.x, humidity: 0.3 };
           for (let k = 0; k < 2000; k++) {
-            const r0 = e.rpm;
+            const r0 = e.rpm, s0 = e.bladePitch;
             e.step(0.02, env);
-            if (k > 20 && Math.abs(e.rpm - r0) < 1e-4) break;
+            if (k > 20 && Math.abs(e.rpm - r0) < 1e-4 && Math.abs(e.bladePitch - s0) < 1e-8) break;
           }
         } else {
           const env = { rho: this.env.rho, p: this.env.p, T: this.env.T, mach: V / this.env.a, onGround: false };
           for (let k = 0; k < 4000; k++) {
-            const r0 = e.n2;
+            const r0 = e.n2, ab0 = e.afterburner, rpm0 = e.rpm;
             e.step(0.05, env);
-            if (k > 20 && Math.abs(e.n2 - r0) < 1e-6 && Math.abs(e.n1FromN2(e.n2) - e.n1) < 1e-5) break;
+            if (k > 20 && Math.abs(e.n2 - r0) < 1e-6 && Math.abs(e.n1FromN2(e.n2) - e.n1) < 1e-5
+              && Math.abs(e.afterburner - ab0) < 1e-7 && Math.abs(e.rpm - rpm0) < 1e-4) break;
           }
         }
       }

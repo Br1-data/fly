@@ -29,8 +29,12 @@ button, select, input[type='range'] { touch-action: manipulation; }
   .summary-line { font-size: 11px; gap: 4px 10px; }
   .ac-card { padding: 12px; }
   .weather-presets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .missions-grid { grid-template-columns: 1fr; grid-template-rows: minmax(100px, 38%) minmax(0, 1fr); }
+  .missions-grid { grid-template-columns: 1fr; grid-template-rows: minmax(170px, 50%) minmax(0, 1fr); }
   .mission-list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .mission-side { border-right: 0; border-bottom: 1px solid var(--line); min-height: 0; overflow: hidden; }
+  .mission-side .mission-list { border-bottom: 0; }
+  .mission-filters .field { min-width: 0; flex-basis: 100%; }
+  .mission-filters { padding: 8px 10px 2px; }
   .mission-brief { padding: 14px; }
   .brief-inner h2 { font-size: 22px; }
   .brief-meta { flex-wrap: wrap; gap: 6px 12px; }

@@ -204,7 +204,7 @@ export class App {
     Object.assign(this.flightSim.settings, this.settings.realism);
     if (this.flightSim.fm) {
       this.flightSim.fm.systems.infiniteFuel = this.settings.realism.unlimitedFuel;
-      if (this.flightSim.fm.fcs) this.flightSim.fm.fcs.mode = this.settings.realism.fbwNormalLaw ? 'normal' : 'direct';
+      if (this.flightSim.fm.fcs) this.flightSim.fm.fcs.mode = this.settings.realism.fbwNormalLaw || this.flightSim.def.fbw?.law === 'fighter' ? 'normal' : 'direct';
     }
   }
 

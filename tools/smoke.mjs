@@ -117,10 +117,12 @@ try {
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   }
 
-  for (const aircraft of ['airliner', 'jet']) {
+  const fleet = await page.evaluate(async () => (await import('/src/sim/aircraft/index.js')).AIRCRAFT_LIST.map((d) => d.id).filter((id) => id !== 'trainer'));
+  check(`Hangar con ${fleet.length + 1} velivoli`, fleet.length >= 10);
+  for (const aircraft of fleet) {
     await page.evaluate(async (id) => {
       const app = window.__cieli;
-      await app.startFlight({ aircraft: id, start: { type: 'air', airport: 'XAQU', altitudeFt: 5000, speedKt: id === 'jet' ? 300 : 240 }, time: 14 }, null);
+      await app.startFlight({ aircraft: id, start: { type: 'air', airport: 'XAQU', altitudeFt: 5000 }, time: 14 }, null);
     }, aircraft);
     await ready('flight');
     await page.screenshot({ path: path.join(output, `${aircraft}-cockpit.png`) });
@@ -131,7 +133,14 @@ try {
   }
   await page.evaluate(() => window.__cieli.showMainMenu());
   await page.getByRole('button', { name: /Missioni/ }).click();
-  check('Catalogo di 13 missioni', await page.locator('.mission-card').count() === 13);
+  const catalogue = await page.evaluate(async () => {
+    const [{ MISSIONS }, { getAircraft }] = await Promise.all([import('/src/missions/missions.js'), import('/src/sim/aircraft/index.js')]);
+    return { all: MISSIONS.length, military: MISSIONS.filter((m) => getAircraft(m.aircraft).role === 'military').length };
+  });
+  check(`Catalogo di ${catalogue.all} missioni`, catalogue.all >= 40 && await page.locator('.mission-card').count() === catalogue.all);
+  await page.locator('.mission-filters').getByRole('button', { name: 'Militari' }).click();
+  check(`Filtro missioni militari (${catalogue.military})`, await page.locator('.mission-card').count() === catalogue.military);
+  await page.locator('.mission-filters').getByRole('button', { name: 'Tutte' }).click();
   await page.getByRole('button', { name: /Inizia la missione/ }).click();
   await ready('flight');
   check('Missione attiva con obiettivi', await page.evaluate(() => window.__cieli.runner?.status === 'running' && window.__cieli.runner.objectives.length > 0));

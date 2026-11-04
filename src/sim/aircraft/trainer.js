@@ -22,6 +22,7 @@ export default {
   panel: 'ga',
   model: 'trainer',
   sound: 'piston',
+  takeoffTrim: 0.15,
   mass: { empty: 767, payload: 170, reference: 1082, mtow: 1157 },
   inertia: [1285, 1825, 2667, 0],
   cgHeight: 1.22,

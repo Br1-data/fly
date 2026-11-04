@@ -561,6 +561,33 @@ ul.specs li {
   color: var(--amber);
 }
 
+/* aircraft groups and mission filters */
+.ac-filter { margin-bottom: 10px; }
+.ac-group {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--muted);
+  margin: 14px 0 8px;
+  font-weight: 600;
+}
+.mission-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+.mission-side .mission-list { border-right: 0; flex: 1; min-height: 0; }
+.mission-list .mission-card { flex-shrink: 0; }
+.mission-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: end;
+  padding: 12px 14px 4px;
+}
+.mission-filters .field { margin: 0; min-width: 150px; flex: 1; }
+
 /* missions */
 .missions-grid {
   display: grid;

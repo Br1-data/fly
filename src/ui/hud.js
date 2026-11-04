@@ -173,7 +173,7 @@ export class FlightHud {
       c.vs.textContent = (fm.vs >= 0 ? '+' : '') + num(Math.round(fm.vs / FPM / 10) * 10);
       c.hdg.textContent = pad3(fm.heading) + '°';
       const e0 = fm.engines[0];
-      c.thr.textContent = `${Math.round(sim.pilot.throttle * 100)}%` + (e0.type === 'piston' ? ` · ${num(e0.rpm)} rpm` : ` · N1 ${num(e0.n1)}`);
+      c.thr.textContent = `${Math.round(sim.pilot.throttle * 100)}%` + (e0.type === 'piston' || e0.p?.prop ? ` · ${num(e0.rpm)} rpm` : ` · N1 ${num(e0.n1)}`) + (e0.afterburner > 0.05 ? ' · PB' : '');
       c.flaps.textContent = sim.def.controls.flapDetents[sys.flapsLever].name;
       c.gear.textContent = !sim.def.controls.retractableGear ? 'fisso' : sys.gearPos > 0.99 ? 'GIÙ' : sys.gearPos < 0.01 ? 'su' : 'in transito';
       c.gear.parentNode.classList.toggle('alert', sys.warnings.gear);
