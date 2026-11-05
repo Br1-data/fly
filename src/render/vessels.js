@@ -230,7 +230,8 @@ function buildCapsuleSM(g, parts, stage) {
   cyl(g, 1.7, 2.0, 0.5, -4.65, m.foil, 40);
   nozzle(g, -4.85, 0.32, 0.95, 1.25, m);
   parts.engines.push({ stage, x: -6.1, radius: 0.95, color: 'storable' });
-  for (const sy of [-1, 1]) solarWing(g, sy * 2.1, 7.2, 1.9, -2.7, 0, 3);
+  parts.wings = parts.wings || [];
+  for (const sy of [-1, 1]) parts.wings.push(solarWing(g, sy * 2.1, 7.2, 1.9, -2.7, 0, 3));
   for (const [y, z] of [[0, 2.05], [0, -2.05]]) rcsQuad(g, -1.3, y, z);
   box(g, 1.6, 0.06, 1.1, [-2.9, 0, -2.05], m.whiteSmooth);
 }
@@ -306,106 +307,182 @@ function buildLander(stages, parts) {
   parts.thrusters = [[1.2, 1.35, 1.0], [1.2, -1.35, 1.0], [1.2, 1.35, -1.0], [1.2, -1.35, -1.0], [2.3, 0, 0], [-0.3, 0, 0]];
 }
 
-function buildInterceptor(stages, parts) {
+function buildSpaceplane(stages, parts) {
   const m = mats();
   const g = stages[0];
-  const body = lathe(g, [[-7.4, 1.25], [-6.2, 1.75], [-2, 2.0], [2.5, 1.65], [5.5, 1.0], [7.2, 0.35], [7.7, 0]], m.hull, 32);
-  body.scale.set(1, 1.15, 0.72);
-  // Delta wings
-  const wingShape = new THREE.Shape();
-  wingShape.moveTo(2.5, 0);
-  wingShape.lineTo(-6.0, 6.3);
-  wingShape.lineTo(-7.2, 6.3);
-  wingShape.lineTo(-6.6, 0);
-  const wg = new THREE.ExtrudeGeometry(wingShape, { depth: 0.22, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.06, bevelSegments: 1 });
-  for (const sy of [1, -1]) {
-    const w = new THREE.Mesh(wg, m.hull);
-    // Shape is in (x, y) = (body x, span); depth along z.
-    w.scale.y = sy;
-    w.position.z = 0.25;
-    w.rotation.x = sy * 0.06;
-    g.add(w);
-    // Fins
-    const fs = new THREE.Shape();
-    fs.moveTo(-4.0, 0);
-    fs.lineTo(-6.9, 2.6);
-    fs.lineTo(-7.5, 2.6);
-    fs.lineTo(-7.2, 0);
-    const fin = new THREE.Mesh(new THREE.ExtrudeGeometry(fs, { depth: 0.14, bevelEnabled: false }), m.hull);
-    fin.rotation.x = -Math.PI / 2 + sy * 0.35;
-    fin.position.set(0, sy * 1.25, -0.6);
-    g.add(fin);
-    // Wingtip pods
-    cyl(g, 0.32, 0.32, 3.2, -4.4, m.darkMetal, 12).position.set(-4.4, sy * 6.2, 0.3);
+  // Lifting body: white upper half, black tiles on the belly (z+ is down).
+  const prof = [[-4.5, 1.25], [-3.9, 1.6], [-1.2, 1.72], [1.4, 1.45], [3.2, 0.95], [4.2, 0.45], [4.55, 0]];
+  const pts = prof.map(([x, r]) => new THREE.Vector2(r, x));
+  for (const [start, mat] of [[Math.PI / 2, m.rocketWhite], [-Math.PI / 2, m.black]]) {
+    const half = new THREE.Mesh(alongX(new THREE.LatheGeometry(pts, 20, start, Math.PI)), mat);
+    half.scale.set(1, 1.12, 0.74);
+    g.add(half);
   }
-  const canopy = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12, 0, TAU, 0, Math.PI / 2), m.glass);
-  canopy.scale.set(2.3, 0.75, 0.75);
-  canopy.rotation.x = Math.PI;
-  canopy.position.set(4.0, 0, -0.85);
-  g.add(canopy);
-  nozzle(g, -6.9, 0.7, 1.15, 0.9, m);
-  parts.engines.push({ stage: 0, x: -7.8, radius: 1.1, color: 'fusion' });
-  box(g, 1.8, 0.5, 0.25, [-1.5, 0, 1.3], m.orange);
-  parts.thrusters = [[5.5, 1.0, 0], [5.5, -1.0, 0], [5.5, 0, 0.9], [5.5, 0, -0.9], [-5, 6.2, 0.3], [-5, -6.2, 0.3]];
+  // Base plate with the two orbital engines.
+  const base = new THREE.Mesh(new THREE.CircleGeometry(1.25, 24), m.darkMetal);
+  base.rotation.y = -Math.PI / 2;
+  base.scale.set(0.74, 1.12, 1);
+  base.position.x = -4.5;
+  g.add(base);
+  for (const sy of [-1, 1]) {
+    const n = nozzle(g, -4.5, 0.12, 0.3, 0.4, m);
+    g.children[g.children.length - 1].position.y = sy * 0.45;
+    parts.engines.push({ stage: 0, x: n.x, y: sy * 0.45, radius: 0.3, color: 'storable' });
+  }
+  // Small delta wings with upturned tip fins.
+  const ws = new THREE.Shape();
+  ws.moveTo(0.4, 0);
+  ws.lineTo(-3.7, 2.1);
+  ws.lineTo(-4.4, 2.1);
+  ws.lineTo(-4.4, 0);
+  const wg = new THREE.ExtrudeGeometry(ws, { depth: 0.16, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 1 });
+  const fs = new THREE.Shape();
+  fs.moveTo(-2.9, 0);
+  fs.lineTo(-4.2, 1.6);
+  fs.lineTo(-4.6, 1.6);
+  fs.lineTo(-4.4, 0);
+  const fg = new THREE.ExtrudeGeometry(fs, { depth: 0.12, bevelEnabled: false });
+  for (const sy of [1, -1]) {
+    const w = new THREE.Mesh(wg, m.rocketWhite);
+    w.scale.y = sy;
+    w.position.set(0, sy * 1.45, 0.55);
+    w.rotation.x = -sy * 0.12;
+    g.add(w);
+    const fin = new THREE.Mesh(fg, m.rocketWhite);
+    fin.rotation.x = -Math.PI / 2 + sy * 0.35;
+    fin.position.set(0, sy * 3.5, 0.35);
+    g.add(fin);
+  }
+  // Cockpit windows and the upper docking port.
+  for (const sy of [-1, 1]) window(g, [3.05, sy * 0.38, -0.66], [0.62, 0.36], [0.55, sy * 0.35, -1]);
+  window(g, [2.55, 0, -0.95], [0.5, 0.3], [0.3, 0, -1]);
+  const port = new THREE.Group();
+  cyl(port, 0.5, 0.5, 0.6, -0.5, m.metal, 20);
+  dockingRing(port, 0, 0.5);
+  port.rotation.y = Math.PI / 2;
+  port.position.set(2.0, 0, -1.6);
+  g.add(port);
+  parts.thrusters = [[4.0, 0.5, 0], [4.0, -0.5, 0], [3.6, 0, -0.6], [3.6, 0, 0.6], [-4.2, 1.2, -0.4], [-4.2, -1.2, -0.4]];
+  // Landing gear (shown when deployed): wheels at the simulation's contact points.
   parts.gear = [];
-  for (const [x, y] of [[3.8, 0], [-3.8, 2.6], [-3.8, -2.6]]) {
+  for (const [x, y, z, r] of [[3.0, 0, 1.55, 0.22], [-1.6, 2.0, 1.6, 0.25], [-1.6, -2.0, 1.6, 0.25]]) {
     const leg = new THREE.Group();
-    rod(leg, [x, y, 0.7], [x, y, 1.4], 0.08, m.metal);
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.2, 14), m.black);
-    wheel.position.set(x, y, 1.55);
+    rod(leg, [x, y * 0.8, 0.85], [x, y, z], 0.07, m.metal);
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.18, 16), m.black);
+    wheel.position.set(x, y, z);
     leg.add(wheel);
     g.add(leg);
     parts.gear.push(leg);
   }
 }
 
+/** Liquid-hydrogen stage for the trans-lunar injection, with an open adapter around the SM engine. */
+function buildTranslunar(stages, parts) {
+  const m = mats();
+  const t = stages[0];
+  cyl(t, 2.0, 2.0, 9.1, -10.85, m.white, 40);
+  cyl(t, 2.02, 2.02, 0.4, -8.0, m.foil, 40);
+  cyl(t, 2.02, 2.02, 1.5, -5.55, m.rocketWhite, 40, true);
+  cyl(t, 1.4, 2.0, 0.6, -15.7, m.darkMetal, 32);
+  const n = nozzle(t, -15.95, 0.3, 0.9, 0.85, m);
+  parts.engines.push({ stage: 0, x: n.x, radius: 0.9, color: 'hydrolox' });
+  for (const [y, z] of [[2.05, 0], [-2.05, 0], [0, 2.05], [0, -2.05]]) rcsQuad(t, -15.0, y, z);
+  buildCapsuleSM(stages[1], parts, 1);
+  buildCapsuleCM(stages[2], parts);
+}
+
+/** Nuclear thermal interplanetary ship: habitat, hydrogen tank, truss with radiators, three reactors. */
+function buildNtr(stages, parts) {
+  const m = mats();
+  const s = stages[0];
+  cyl(s, 2.05, 2.05, 1.7, -5.65, m.rocketWhite, 32, true); // adapter around the SM engine
+  cyl(s, 2.5, 2.5, 5.4, -9.2, m.white, 32); // habitat
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * TAU;
+    window(s, [-8.2, Math.cos(a) * 2.52, Math.sin(a) * 2.52], [0.5, 0.35], [0, Math.cos(a), Math.sin(a)]);
+  }
+  for (const sy of [-1, 1]) solarWing(s, sy * 2.6, 9, 2.4, -9.5, 0, 4);
+  cyl(s, 2.5, 4.2, 1.2, -12.5, m.rocketWhite, 40);
+  cyl(s, 4.2, 4.2, 12.6, -19.4, m.foil, 48); // liquid hydrogen tank
+  cyl(s, 4.2, 3.0, 1.2, -26.3, m.rocketWhite, 48);
+  // Truss and radiator panels.
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * TAU + Math.PI / 4;
+    rod(s, [-26.8, Math.cos(a) * 1.6, Math.sin(a) * 1.6], [-33, Math.cos(a) * 1.6, Math.sin(a) * 1.6], 0.12, m.metal);
+  }
+  for (const sz of [-1, 1]) {
+    const r = box(s, 5.5, 0.06, 4.2, [-30, 0, sz * 3.8], m.hull);
+    r.rotation.x = 0;
+  }
+  cyl(s, 2.6, 2.6, 0.5, -33.3, m.darkMetal, 32); // shadow shield
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * TAU + Math.PI / 2;
+    const y = Math.cos(a) * 1.35, z = Math.sin(a) * 1.35;
+    const core = cyl(s, 0.6, 0.6, 3.3, -35.2, m.metal, 20);
+    core.position.set(-35.2, y, z);
+    const n = nozzle(s, -36.85, 0.22, 0.75, 1.65, m);
+    s.children[s.children.length - 1].position.set(0, y, z);
+    parts.engines.push({ stage: 0, x: n.x, y, z, radius: 0.75, color: 'nuclear' });
+  }
+  for (const [y, z] of [[2.55, 0], [-2.55, 0], [0, 2.55], [0, -2.55]]) rcsQuad(s, -10.5, y, z);
+  buildCapsuleSM(stages[1], parts, 1);
+  buildCapsuleCM(stages[2], parts);
+}
+
+/** Two-stage launcher with the Rondine under a fairing and an escape tower. */
 function buildRocket(stages, parts) {
   const m = mats();
   const b = stages[0];
-  cyl(b, 1.95, 1.95, 19, -21.5, m.rocketWhite, 40);
-  cyl(b, 1.97, 1.97, 1.2, -13.0, m.black, 40);
-  cyl(b, 1.97, 1.97, 0.8, -29.5, m.black, 40);
+  // First stage: tank −59.6…−21, black interstage −21…−18.6 around the upper-stage nozzle.
+  cyl(b, 1.83, 1.83, 38.6, -40.3, m.rocketWhite, 40);
+  cyl(b, 1.84, 1.84, 2.4, -19.8, m.black, 40, true);
+  cyl(b, 1.84, 1.84, 0.5, -33.0, m.black, 40);
+  cyl(b, 1.83, 1.6, 0.4, -59.8, m.darkMetal, 32);
+  const ring = [[0, 0]];
+  for (let k = 0; k < 8; k++) ring.push([Math.cos((k / 8) * TAU) * 1.22, Math.sin((k / 8) * TAU) * 1.22]);
+  let exit = -60.7;
+  for (const [y, z] of ring) {
+    exit = nozzle(b, -59.9, 0.16, 0.42, 0.8, m).x;
+    b.children[b.children.length - 1].position.set(0, y, z);
+  }
+  parts.engines.push({ stage: 0, x: exit, radius: 1.75, color: 'kerolox' });
   for (let k = 0; k < 4; k++) {
     const a = (k / 4) * TAU + Math.PI / 4;
-    const fs = new THREE.Shape();
-    fs.moveTo(-26, 0);
-    fs.lineTo(-30.8, 2.0);
-    fs.lineTo(-31.2, 2.0);
-    fs.lineTo(-31.0, 0);
-    const fin = new THREE.Mesh(new THREE.ExtrudeGeometry(fs, { depth: 0.12, bevelEnabled: false }), m.black);
+    const y = Math.cos(a), z = Math.sin(a);
+    // Folded landing legs and grid fins.
+    const leg = box(b, 9, 0.5, 0.18, [-55, y * 1.88, z * 1.88], m.black);
+    leg.rotation.x = a + Math.PI / 2;
+    const fin = box(b, 0.25, 1.1, 1.0, [-22, y * 2.2, z * 2.2], m.darkMetal);
     fin.rotation.x = a;
-    fin.translateY(1.9);
-    b.add(fin);
-    nozzle(b, -31.0, 0.35, 0.72, 1.0, m).x;
-    b.children[b.children.length - 1].position.set(0, Math.cos(a) * 0.9, Math.sin(a) * 0.9);
   }
-  parts.engines.push({ stage: 0, x: -32.0, radius: 1.9, color: 'kerolox', cluster: 4 });
+  // Second stage.
   const u = stages[1];
-  cyl(u, 1.95, 1.95, 7.4, -8.4, m.rocketWhite, 40);
-  cyl(u, 1.97, 1.97, 0.6, -5.0, m.black, 40);
-  // Interstage hides the upper-stage nozzle until separation.
-  cyl(b, 1.95, 1.95, 1.6, -12.3, m.rocketWhite, 40, true);
-  nozzle(u, -12.0, 0.3, 0.95, 1.1, m);
-  parts.engines.push({ stage: 1, x: -13.1, radius: 0.95, color: 'hydrolox' });
+  cyl(u, 1.83, 1.83, 12.8, -12.0, m.rocketWhite, 40);
+  const n2 = nozzle(u, -18.4, 0.28, 1.2, 2.4, m);
+  parts.engines.push({ stage: 1, x: n2.x, radius: 1.2, color: 'kerolox' });
+  // Fairing around the service module and capsule, with the escape tower: jettisoned with
+  // the second stage (hidden on the falling debris).
+  const fair = [];
+  fair.push(cyl(u, 1.83, 2.45, 0.8, -5.2, m.rocketWhite, 40));
+  fair.push(cyl(u, 2.45, 2.45, 4.0, -2.8, m.rocketWhite, 40));
+  fair.push(lathe(u, [[-0.8, 2.45], [0.6, 2.4], [1.9, 1.5], [2.9, 0.75], [3.3, 0]], m.rocketWhite, 40));
+  fair.push(rod(u, [3.2, 0, 0], [6.8, 0, 0], 0.16, m.orange));
+  fair.push(cyl(u, 0.38, 0.2, 1.5, 7.4, m.orange, 16));
+  for (const f of fair) f.userData.jettison = true;
   buildCapsuleSM(stages[2], parts, 2);
-  // Adapter ring around the SM while on the launcher.
-  cyl(stages[1], 1.95, 2.05, 0.8, -4.4, m.rocketWhite, 40);
   buildCapsuleCM(stages[3], parts);
-  // Launch escape tower on top of the capsule (jettisoned with the second stage).
-  const t = stages[1];
-  rod(t, [2.8, 0, 0], [6.5, 0, 0], 0.18, m.orange);
-  cyl(t, 0.35, 0.2, 1.4, 7.0, m.orange, 16);
-  for (const a of [0, 1, 2, 3]) rod(t, [2.5, Math.cos(a * 1.57) * 0.8, Math.sin(a * 1.57) * 0.8], [3.8, 0, 0], 0.06, m.orange);
+  // Solar wings stay folded under the fairing until the capsule flies alone.
+  parts.wingStage = 2;
 }
 
-const BUILDERS = { pod: buildPod, capsule: buildCapsule, lander: buildLander, interceptor: buildInterceptor, rocket: buildRocket };
+const BUILDERS = { pod: buildPod, capsule: buildCapsule, translunar: buildTranslunar, lander: buildLander, spaceplane: buildSpaceplane, rocket: buildRocket, ntr: buildNtr };
 
 /** Exhaust colours by propellant. */
 const PLUME = {
   storable: [new THREE.Color(1.0, 0.72, 0.45), new THREE.Color(0.55, 0.35, 0.9)],
   kerolox: [new THREE.Color(1.0, 0.85, 0.55), new THREE.Color(1.0, 0.45, 0.12)],
   hydrolox: [new THREE.Color(0.85, 0.9, 1.0), new THREE.Color(0.35, 0.5, 1.0)],
-  fusion: [new THREE.Color(0.85, 0.95, 1.0), new THREE.Color(0.95, 0.35, 0.9)],
+  nuclear: [new THREE.Color(0.7, 0.8, 1.0), new THREE.Color(0.25, 0.35, 0.9)],
 };
 
 function plumeMaterial(kind) {
@@ -493,14 +570,14 @@ export function createVessel(def) {
     }
     g.computeVertexNormals();
     const mesh = new THREE.Mesh(g, plumeMaterial(e.color));
-    mesh.position.x = e.x;
+    mesh.position.set(e.x, e.y || 0, e.z || 0);
     mesh.renderOrder = 20;
     mesh.frustumCulled = false;
     mesh.visible = false;
     stages[e.stage].add(mesh);
     e.mesh = mesh;
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTexture(), color: PLUME[e.color]?.[0] || 0xffffff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    glow.position.x = e.x - e.radius * 0.6;
+    glow.position.set(e.x - e.radius * 0.6, e.y || 0, e.z || 0);
     glow.renderOrder = 21;
     glow.visible = false;
     stages[e.stage].add(glow);
@@ -552,7 +629,7 @@ export function createVessel(def) {
   inner.add(spot, spot.target);
   const engineLight = new THREE.PointLight(0xffb070, 0, 80, 1.6);
   inner.add(engineLight);
-  return { root, inner, stages, engines: parts.engines, thrusters: parts.thrusters, lights, chute, gear: parts.gear || null, spot, engineLight, def };
+  return { root, inner, stages, engines: parts.engines, thrusters: parts.thrusters, lights, chute, gear: parts.gear || null, wings: parts.wings || [], wingStage: parts.wingStage || 0, spot, engineLight, def };
 }
 
 /** Per-frame visual state of a vessel model from the spacecraft. */
@@ -589,6 +666,7 @@ export function updateVessel(v, ship, time, atmosphere = 0) {
   }
   v.spot.intensity = ship.lights ? 400 : 0;
   if (v.gear) for (const g of v.gear) g.visible = ship.legsDeployed;
+  for (const w of v.wings) w.visible = ship.stageIndex >= v.wingStage;
   if (v.chute) {
     const open = ship.parachute > 0 ? ship.parachute : 0;
     v.chute.visible = open > 0 && ship.stageIndex === ship.stages.length - 1;

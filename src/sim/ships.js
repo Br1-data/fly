@@ -71,7 +71,7 @@ export const SHIPS = [
     name: 'Rondine CR-4',
     category: 'Capsula con modulo di servizio',
     description: 'Veicolo per l’equipaggio verso la stazione. Il modulo di servizio fornisce propulsione e Δv; prima del rientro si sgancia e lo scudo termico protegge la capsula, che ammara con i paracadute.',
-    specs: ['Massa 10,4 t', 'Motore 34 kN · Isp 318 s', 'Δv ≈ 1.330 m/s', 'Scudo termico (fino a 2.900 K) e paracadute', 'Porta di attracco a prua'],
+    specs: ['Massa 10,4 t', 'Motore 34 kN · Isp 318 s', 'Δv ≈ 1.320 m/s', 'Scudo termico (fino a 2.900 K) e paracadute', 'Porta di attracco a prua'],
     model: 'capsule',
     controlStyle: 'spacecraft',
     stages: [CAPSULE_SM, CAPSULE_CM],
@@ -84,7 +84,7 @@ export const SHIPS = [
     name: 'Rondine con stadio TLI',
     category: 'Capsula con stadio di iniezione translunare',
     description: 'La Rondine agganciata a uno stadio criogenico a idrogeno e ossigeno: abbastanza Δv per l’iniezione translunare (circa 3,1 km/s) e l’inserimento in orbita lunare. Per tornare si usa il modulo di servizio.',
-    specs: ['Massa 34 t', 'Stadio TLI 110 kN · Isp 450 s', 'Δv stadio ≈ 4.200 m/s', 'Modulo di servizio ≈ 1.330 m/s', 'Rientro a 11 km/s con lo scudo termico'],
+    specs: ['Massa 34 t', 'Stadio TLI 110 kN · Isp 450 s', 'Δv stadio ≈ 4.200 m/s', 'Modulo di servizio ≈ 1.320 m/s', 'Rientro a 11 km/s con lo scudo termico'],
     model: 'translunar',
     controlStyle: 'spacecraft',
     stages: [

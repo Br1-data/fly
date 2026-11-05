@@ -1309,9 +1309,12 @@ export class Simulation {
         const rel = s.vel.clone().sub(o.vel);
         const closing = -rel.dot(pd);
         const latSpeed = rel.clone().addScaled(pd, -rel.dot(pd)).len();
+        // Soft capture happens with the rings in contact and still closing: a ship backing
+        // away after a bounce is not captured.
+        if (along > 0.12 || closing < -0.02) continue;
         const ok = axis > Math.cos((7 * Math.PI) / 180) && lateral < 0.25 && closing < 0.5 && latSpeed < 0.25;
-        if (ok) return this.dock(o, i, closing, lateral, Math.acos(clamp(axis, -1, 1)));
-        if (along < 0.15 && !this._dockBump) {
+        if (ok) return this.dock(o, i, Math.max(0, closing), lateral, Math.acos(clamp(axis, -1, 1)));
+        if (!this._dockBump) {
           this._dockBump = 1.5;
           const why = axis <= Math.cos((7 * Math.PI) / 180) ? 'disallineato' : lateral >= 0.25 ? 'fuori asse' : closing >= 0.5 ? 'troppo veloce' : 'deriva laterale';
           this.message(`Aggancio non riuscito: ${why}`, 'warn', 3.5);

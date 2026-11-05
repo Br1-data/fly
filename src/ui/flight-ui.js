@@ -284,7 +284,7 @@ export class FlightUI {
     clear(this.missionEl).append(
       h('div.fu-head', this.app.mission.title, h('span.fu-mtime', timeStr(r.elapsed))),
       h('ol.fu-obj', r.objectives.map((o) => h('li.' + o.state, o.text))),
-      r.hint ? h('div.fu-hint', r.hint) : null,
+      r.hint ? h('div.fu-hint', r.hint) : '',
     );
   }
 

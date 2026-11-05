@@ -407,6 +407,22 @@ export class SceneRenderer {
         pos = shipAbs.clone().addScaled(tilted, -size).addScaled(u, (def.camera.chaseHeight || 3) * this.zoomFactor * 0.6);
         look = shipAbs.clone().addScaled(u, (def.camera.chaseHeight || 3) * 0.25).sub(pos).normalize();
         up = u;
+        // Nose pointing up near a surface (rocket on the pad, lander, early ascent): looking
+        // from behind would mean looking from underground, so swing to a side view with the
+        // local vertical as the camera up.
+        const nearGround = s.agl < 40000;
+        const f = nearGround ? Math.min(1, Math.max(0, (l.dot(radial) - 0.55) / 0.3)) : 0;
+        if (f > 0) {
+          let side = rotateAround(u, radial, this.yaw);
+          side = side.addScaled(radial, -side.dot(radial));
+          if (side.len() < 1e-3) side = new V3().crossVectors(radial, new V3(0, 0, 1));
+          side.normalize();
+          const sidePos = shipAbs.clone().addScaled(side, -size * 0.8).addScaled(radial, size * (0.08 + this.tilt * 0.4));
+          const sideLook = shipAbs.clone().sub(sidePos).normalize();
+          pos = pos.scale(1 - f).addScaled(sidePos, f);
+          look = look.scale(1 - f).addScaled(sideLook, f).normalize();
+          up = up.clone().scale(1 - f).addScaled(radial, f).normalize();
+        }
       } else if (view === 'target' && sim.targetState()) {
         const ts = sim.targetState();
         const tAbs = sim.absolute(s.ref, ts.pos);
@@ -705,7 +721,7 @@ export class SceneRenderer {
         const clone = this.vessel.stages[idx].clone();
         clone.visible = true;
         clone.traverse((o) => {
-          if (o.material?.uniforms || o.isSprite) o.visible = false;
+          if (o.material?.uniforms || o.isSprite || o.userData.jettison) o.visible = false;
         });
         clone.position.x = -d.stage.x;
         g.add(clone);

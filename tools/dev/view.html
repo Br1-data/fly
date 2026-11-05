@@ -40,7 +40,7 @@ function frame(now) {
   r.update(sim, dt);
   r.render();
   window.__dev.frames++;
-  if (window.__dev.frames > 20 && (r.builder.pending < 4 || window.__dev.frames > 150)) window.__dev.ready = true;
+  if (window.__dev.frames > 20 && (r.builder.pending < 4 || window.__dev.frames > Number(params.get('maxf') || 150))) window.__dev.ready = true;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

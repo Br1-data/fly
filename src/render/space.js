@@ -21,7 +21,9 @@ vec4 bake(vec3 d) {
   float glow = band * (0.35 + 0.65 * clouds) * (1.0 - dust * 0.85) + bulge * 0.6 * (1.0 - dust * 0.7);
   float neb = smoothstep(0.62, 0.9, fbm3(d * 3.0 - 4.0, 4) * 0.5 + 0.5);
   vec3 col = vec3(0.55, 0.6, 0.75) * glow * 0.11 + vec3(0.9, 0.75, 0.55) * bulge * 0.05 + vec3(0.5, 0.15, 0.25) * neb * band * 0.025;
-  return vec4(col, 1.0);
+  // Stored as sqrt(4 col) in 8 bits: linear storage of such dark values posterizes into
+  // visible bands once converted to sRGB.
+  return vec4(sqrt(clamp(col * 4.0, 0.0, 1.0)), 1.0);
 }`;
 
 export class SpaceBackground {
@@ -112,7 +114,8 @@ export class SpaceBackground {
         varying vec3 vDir;
         void main() {
           #include <logdepthbuf_fragment>
-          gl_FragColor = vec4(textureCube(tSky, normalize(vDir)).rgb * uFade, 1.0);
+          vec3 e = textureCube(tSky, normalize(vDir)).rgb;
+          gl_FragColor = vec4(e * e * 0.25 * uFade, 1.0);
         }`,
     });
     this.milky = new THREE.Mesh(new THREE.SphereGeometry(FAR * 0.95, 48, 24), this.milkyMaterial);
