@@ -41,25 +41,23 @@ async function boot() {
     showError(new Error('WebGL2 non disponibile: la scheda video o il browser non supportano la grafica 3D richiesta.'));
     return;
   }
-  const [{ SceneRenderer }, { Cockpit }, { InputManager }, { AudioEngine }, { MISSIONS }, { MissionRunner }, progress, { getChecklists }] = await Promise.all([
+  const [{ SceneRenderer }, { InputManager }, { AudioEngine }, { MISSIONS }, { MissionRunner }, progress, { loadPlanetData }] = await Promise.all([
     import('./render/renderer.js'),
-    import('./cockpit/cockpit.js'),
     import('./input/input.js'),
     import('./audio/audio.js'),
     import('./missions/missions.js'),
     import('./missions/runner.js'),
     import('./missions/progress.js'),
-    import('./missions/checklists.js'),
+    import('./sim/planet-data.js'),
   ]);
   const app = new App({
     canvas: document.getElementById('view3d'),
     roots: {
-      cockpit: document.getElementById('cockpit-root'),
       hud: document.getElementById('hud-root'),
       screens: document.getElementById('screen-root'),
       overlay: document.getElementById('overlay-root'),
     },
-    deps: { SceneRenderer, Cockpit, InputManager, AudioEngine, MISSIONS, MissionRunner, loadResults: progress.loadResults, saveResult: progress.saveResult, getChecklists },
+    deps: { SceneRenderer, InputManager, AudioEngine, MISSIONS, MissionRunner, loadResults: progress.loadResults, saveResult: progress.saveResult, loadPlanetData },
   });
   window.__cieli = app; // handy for debugging and automated tests
   await app.start();

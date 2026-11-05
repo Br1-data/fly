@@ -1,7 +1,7 @@
 {
-  "name": "Cieli Aperti Flight Simulator",
-  "short_name": "Cieli Aperti",
-  "description": "Simulatore di volo: fisica 6DOF, cockpit completo, meteo e missioni.",
+  "name": "Cieli Aperti – Space Edition",
+  "short_name": "Cieli Aperti Space",
+  "description": "Simulatore di volo spaziale con fisica reale: Terra, Luna, Marte e il Sistema Solare.",
   "lang": "it",
   "start_url": "./",
   "scope": "./",

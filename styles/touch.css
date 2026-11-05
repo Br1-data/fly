@@ -1,107 +1,115 @@
-/* Touch controls leave the centre of the flight view unobstructed. */
+/* Touch flight controls (phones and tablets). */
 .touch-controls {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 45;
   pointer-events: none;
+  z-index: 25;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  font-family: var(--mono, monospace);
-  color: #edf7ff;
+  --tc-size: clamp(118px, 22vmin, 190px);
 }
-.touch-controls[hidden], .touch-controls [hidden] { display: none !important; }
-.touch-flight-left, .touch-flight-right {
+.touch-controls[hidden] { display: none; }
+.touch-controls > * { pointer-events: auto; }
+.touch-left,
+.touch-right {
   position: absolute;
-  bottom: var(--touch-controls-bottom, max(calc(var(--panel-h, 0px) + 12px), calc(env(safe-area-inset-bottom) + 12px)));
-  display: grid;
-  align-items: end;
-  gap: 8px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
 }
-.touch-flight-left { left: max(12px, env(safe-area-inset-left)); }
-.touch-flight-right { right: max(12px, env(safe-area-inset-right)); grid-template-columns: 52px 106px; }
-.touch-stick, .touch-button, .touch-throttle {
-  pointer-events: auto;
-  touch-action: none;
-  -webkit-touch-callout: none;
-  overscroll-behavior: none;
-  border: 1px solid #9ccce781;
-  background: #071a2bcc;
-  box-shadow: 0 2px 10px #0006;
+.touch-left {
+  left: calc(14px + env(safe-area-inset-left));
+  flex-direction: column;
+  align-items: center;
 }
+.touch-right {
+  right: calc(14px + env(safe-area-inset-right));
+}
+.touch-col { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.touch-row { display: flex; gap: 8px; }
 .touch-stick {
   position: relative;
-  width: clamp(112px, 27vw, 152px);
-  height: clamp(112px, 27vw, 152px);
+  width: var(--tc-size);
+  height: var(--tc-size);
   border-radius: 50%;
-  overflow: hidden;
-  background: linear-gradient(transparent calc(50% - .5px), #9ccce738 50%, transparent calc(50% + .5px)), linear-gradient(90deg, transparent calc(50% - .5px), #9ccce738 50%, transparent calc(50% + .5px)), #071a2bbf;
+  background: radial-gradient(circle, rgba(120, 170, 230, 0.16), rgba(20, 35, 60, 0.35));
+  border: 1px solid rgba(150, 200, 255, 0.35);
+  touch-action: none;
 }
-.touch-stick-label { position: absolute; top: 9px; left: 0; width: 100%; text-align: center; font-size: 9px; letter-spacing: 1.3px; color: #c8e3f4; pointer-events: none; }
-.touch-stick-thumb { position: absolute; width: 44px; height: 44px; left: calc(50% - 22px); top: calc(50% - 22px); border: 2px solid #b3e8ff; border-radius: 50%; background: #397595b3; box-shadow: 0 0 14px #33b7ff33; pointer-events: none; }
-/* Neutral point of the current touch (the stick deflects from where the finger landed). */
-.touch-stick-origin { position: absolute; width: 14px; height: 14px; left: calc(50% - 7px); top: calc(50% - 7px); border-radius: 50%; border: 2px dashed #b3e8ff99; opacity: 0; pointer-events: none; }
-.touch-stick-active .touch-stick-origin { opacity: 1; }
-.touch-controls .touch-trim { background: #1d3a2ee6; border-color: #8fe0b099; }
-.touch-rudder { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.touch-actions { display: grid; grid-template-columns: repeat(2, 50px); gap: 6px; }
-.touch-controls .touch-button {
-  min-width: 44px;
-  min-height: 46px;
-  margin: 0;
-  padding: 5px 3px;
-  border-radius: 9px;
-  font: 10px var(--font, system-ui);
-  color: #edf7ff;
-  letter-spacing: 0;
+.touch-stick.active { border-color: rgba(120, 220, 255, 0.8); }
+.touch-stick-label {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
   text-align: center;
-  white-space: normal;
-  line-height: 1.2;
+  font: 600 10px/1 var(--font, system-ui);
+  letter-spacing: 0.12em;
+  color: rgba(200, 225, 255, 0.7);
 }
-.touch-controls .touch-brake { grid-column: 1 / -1; min-height: 50px; background: #49261be6; border-color: #eba98899; font-size: 11px; }
-.touch-controls .touch-button.touch-held { background: #276d91ed; border-color: #c5edff; }
-.touch-controls .touch-brake.touch-held { background: #9d4220ed; border-color: #ffbd8b; }
-.touch-button:disabled { opacity: .45; }
-.touch-power { display: flex; flex-direction: column; gap: 6px; align-items: center; }
-.touch-power-value { font-size: 12px; color: #b6e8ff; background: #071a2bd9; border-radius: 4px; padding: 2px 4px; }
-.touch-power-label { font-size: 9px; letter-spacing: .4px; background: #071a2bcc; padding: 3px 2px; border-radius: 3px; }
-.touch-throttle { position: relative; width: 48px; height: 120px; border-radius: 12px; overflow: hidden; }
-.touch-throttle-fill { position: absolute; bottom: 0; left: 0; right: 0; background: #36809d73; pointer-events: none; }
-.touch-throttle-thumb { position: absolute; left: 5px; right: 5px; height: 6px; margin-bottom: -3px; border-radius: 3px; background: #caf0ff; pointer-events: none; }
-.touch-throttle:focus-visible, .touch-button:focus-visible { outline: 3px solid #f2cc70; outline-offset: 3px; }
-@media (max-width: 380px) {
-  .touch-flight-left { left: max(8px, env(safe-area-inset-left)); }
-  .touch-flight-right { right: max(8px, env(safe-area-inset-right)); grid-template-columns: 48px 102px; gap: 6px; }
-  .touch-actions { grid-template-columns: repeat(2, 48px); }
-  .touch-stick { width: 112px; height: 112px; }
+.touch-stick-thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 36%;
+  height: 36%;
+  margin: -18% 0 0 -18%;
+  border-radius: 50%;
+  background: rgba(160, 210, 255, 0.35);
+  border: 1px solid rgba(200, 235, 255, 0.6);
+  transition: transform 0.06s;
 }
-@media (orientation: landscape) and (max-height: 500px) {
-  .touch-stick { width: 112px; height: 112px; }
-  .touch-throttle { height: 106px; }
-  .touch-flight-left, .touch-flight-right { gap: 6px; }
-  /* Three button columns keep every action on screen when Safari's bars take height. */
-  .touch-flight-right { grid-template-columns: 48px 162px; }
-  .touch-actions { grid-template-columns: repeat(3, 50px); }
+.touch-button {
+  min-width: 48px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font: 600 12px/1 var(--font, system-ui);
+  letter-spacing: 0.04em;
+  color: #e8f2ff;
+  background: rgba(14, 26, 44, 0.62);
+  border: 1px solid rgba(150, 200, 255, 0.35);
+  touch-action: none;
 }
-@media (orientation: landscape) and (max-height: 360px) {
-  .touch-stick { width: 104px; height: 104px; }
-  .touch-throttle { height: 92px; }
-  .touch-controls .touch-button { min-height: 44px; }
-  .touch-controls .touch-brake { min-height: 44px; }
+.touch-button.active,
+.touch-button.on { background: rgba(40, 120, 200, 0.6); border-color: #7fd0ff; }
+.touch-button:disabled { opacity: 0.4; }
+.touch-power { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.touch-power-value { font: 600 12px/1 var(--mono, monospace); color: #bfe4ff; }
+.touch-throttle {
+  position: relative;
+  width: 56px;
+  height: calc(var(--tc-size) * 1.25);
+  border-radius: 12px;
+  background: rgba(14, 26, 44, 0.62);
+  border: 1px solid rgba(150, 200, 255, 0.35);
+  overflow: hidden;
+  touch-action: none;
 }
-
-/* Tablets: larger stick and throttle travel for finer control, bigger buttons. */
-.tablet-device .touch-stick { width: 188px; height: 188px; }
-.tablet-device .touch-stick-thumb { width: 58px; height: 58px; left: calc(50% - 29px); top: calc(50% - 29px); }
-.tablet-device .touch-stick-label { top: 12px; font-size: 11px; }
-.tablet-device .touch-flight-left, .tablet-device .touch-flight-right { gap: 10px; }
-.tablet-device .touch-flight-left { left: max(18px, env(safe-area-inset-left)); }
-.tablet-device .touch-flight-right { right: max(18px, env(safe-area-inset-right)); grid-template-columns: 62px 134px; }
-.tablet-device .touch-actions { grid-template-columns: repeat(2, 63px); gap: 8px; }
-.tablet-device .touch-controls .touch-button { min-height: 58px; font-size: 13px; border-radius: 12px; }
-.tablet-device .touch-controls .touch-brake { min-height: 62px; font-size: 14px; }
-.tablet-device .touch-rudder { gap: 8px; }
-.tablet-device .touch-rudder .touch-button { min-width: 88px; }
-.tablet-device .touch-throttle { width: 60px; height: 190px; border-radius: 14px; }
-.tablet-device .touch-throttle-thumb { height: 8px; margin-bottom: -4px; }
-.tablet-device .touch-power-value { font-size: 14px; }
-.tablet-device .touch-power-label { font-size: 11px; }
+.touch-throttle-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: linear-gradient(180deg, #ff9b45, #ff5a2a);
+  opacity: 0.85;
+}
+.touch-label { font: 600 10px/1 var(--font, system-ui); letter-spacing: 0.12em; color: rgba(200, 225, 255, 0.7); }
+.touch-bar {
+  position: absolute;
+  top: calc(56px + env(safe-area-inset-top));
+  right: calc(10px + env(safe-area-inset-right));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(560px, 62vw);
+}
+@media (max-height: 460px) {
+  .touch-controls { --tc-size: clamp(100px, 26vh, 150px); }
+  .touch-bar { top: calc(46px + env(safe-area-inset-top)); max-width: 52vw; }
+  .touch-button { min-height: 38px; min-width: 44px; padding: 4px 8px; }
+}
