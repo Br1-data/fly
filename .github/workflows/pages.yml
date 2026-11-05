@@ -1,8 +1,18 @@
 name: Publish GitHub Pages
 
+# One Pages site for the repository, two simulators:
+#   /fly/        Cieli Aperti (this branch, the aircraft simulator)
+#   /fly/space/  Cieli Aperti – Space Edition (branch claude/space-edition)
+# Every deployment replaces the whole site, so each run builds both. A push to the
+# Space Edition redeploys through workflow_run once its "Build Windows" tests pass;
+# workflow_run always runs this file from the default branch.
 on:
   push:
     branches: ['claude/epic-hypatia-ctxoo9']
+  workflow_run:
+    workflows: ['Build Windows']
+    types: [completed]
+    branches: ['claude/space-edition']
   workflow_dispatch:
 
 permissions:
@@ -14,6 +24,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +49,29 @@ jobs:
           CHROMIUM_PATH: /opt/google/chrome/chrome
           SMOKE_ROOT: dist/web
           SMOKE_BASE_PATH: /fly/
+
+      # Space Edition under /fly/space/. On pushes to this branch a broken Space Edition
+      # must not block the aircraft simulator (it is then left out of this deployment);
+      # on Space Edition runs it fails the job, so the published site stays as it was.
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/space-edition
+          path: space
+      - name: Build and verify the Space Edition under /fly/space/
+        continue-on-error: ${{ github.event_name == 'push' }}
+        working-directory: space
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build:web
+          SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/space/ npm run smoke
+          SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/space/ npm run smoke:mobile
+          mkdir -p ../dist/web/space
+          cp -R dist/web/. ../dist/web/space/
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+          CHROMIUM_PATH: /opt/google/chrome/chrome
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist/web

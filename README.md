@@ -104,13 +104,20 @@ si usano insieme; trascinando sulla scena ci si guarda intorno. La qualità graf
 dispositivo (iPad e iPhone recenti a 60 fps con antialiasing). L’app è installabile a schermo intero.
 
 ### Versione web
+Pubblicata su **https://br1-data.github.io/fly/space/** (la versione aeronautica resta su
+https://br1-data.github.io/fly/).
+
 ```bash
 npm run build:web
-SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/ npm run smoke
+SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/space/ npm run smoke
 ```
 `dist/web/` contiene solo i file della versione browser, le mappe planetarie e la versione bloccata di
-three.js: nessuna chiave API, CDN o server applicativo. Il workflow Pages del repository pubblica il
-ramo della versione aeronautica originale.
+three.js: nessuna chiave API, CDN o server applicativo. I salvataggi restano nel browser e sono separati
+da quelli della versione aeronautica.
+
+Il repository ha un solo sito Pages, quindi il workflow **Publish GitHub Pages** del branch principale
+costruisce e verifica entrambe le versioni a ogni pubblicazione. Un push su `claude/space-edition`
+la riavvia da solo quando i test di **Build Windows** sono superati.
 
 ### Eseguibile per Windows
 ```bash
