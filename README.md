@@ -1,105 +1,84 @@
-# ✈️ Cieli Aperti Flight Simulator
+# 🚀 Cieli Aperti – Space Edition
 
-Simulatore di volo realistico per **Windows** (applicazione desktop Electron, funziona anche in qualsiasi browser
-con WebGL2). Fisica di volo a 6 gradi di libertà, cockpit completi con strumenti funzionanti e comandi
-cliccabili, sistemi di bordo, autopilota, radionavigazione, meteo dinamico, ciclo giorno/notte, **11 aerei civili e militari** e **43 missioni**.
+Simulatore di volo spaziale con le leggi della fisica reali, nel **Sistema Solare vero e in scala reale**.
+Applicazione desktop per **Windows** (Electron) che funziona anche in qualsiasi browser con WebGL2,
+su smartphone, iPhone e iPad. Sette veicoli, diciassette missioni e un volo libero dalla Terra alla Luna
+e a Marte.
 
 ## Caratteristiche
 
-### Fisica di volo
-- Modello **6-DOF a componenti**: ogni semiala (divisa in pannelli interni/esterni), i piani di coda e la
-  fusoliera calcolano il proprio angolo d'attacco locale. Smorzamenti, effetto diedro, imbardata inversa,
-  stallo progressivo con caduta d'ala, effetto suolo, downwash sul piano orizzontale, scia dell'elica,
-  coppia motrice, fattore P, effetti della comprimibilità (numero di Mach) emergono dalla fisica.
-- **Atmosfera ISA** con QNH e temperatura non standard (l'altimetro sbaglia se non viene regolato e quando fa
-  freddo), vento con gradiente e rotazione con la quota, raffiche, turbolenza, formazione di ghiaccio
-  (tubo di Pitot, carburatore, cellula).
-- **Motore a pistoni** con elica a passo fisso (coppia, giri, miscela, magneti, ghiaccio al carburatore, EGT,
-  temperature e pressione olio, consumo), **turbofan/turbogetto** con dinamica N1/N2, sequenza di avviamento,
-  APU e inversori di spinta.
-- **Carrello** con ammortizzatori, attrito, freni differenziali, sterzo del ruotino, superfici diverse
-  (asfalto, erba, terra, acqua), rilevamento di atterraggi duri, strisciate di coda e incidenti.
-- Prestazioni verificate da una suite di test automatici contro dati reali (velocità di stallo, crociera,
-  rateo di salita, corsa di decollo, consumi, autoland).
+### Fisica
+- **Dinamica newtoniana del corpo rigido a 6 gradi di libertà**: traslazione integrata con Runge-Kutta
+  del quarto ordine, rotazione con le equazioni di Eulero e i momenti d’inerzia del veicolo, ricalcolati
+  a ogni consumo di propellente e separazione.
+  Motori con spinta e impulso specifico che variano con la pressione esterna, ugelli orientabili,
+  propulsori RCS, ruote di reazione.
+- **Equazione del razzo**: la massa cala con il propellente consumato; ogni stadio si separa e diventa
+  un detrito che continua la sua orbita (o ricade).
+- **Gravità a coniche raccordate** con le sfere d’influenza di Laplace: il veicolo passa dall’orbita
+  terrestre a quella lunare, solare e marziana senza discontinuità. Propagazione kepleriana a variabile
+  universale per orbite ellittiche, paraboliche e iperboliche.
+- **Atmosfere**: Terra con la US Standard Atmosphere 1976, Marte e Venere con modelli esponenziali; l’aria
+  ruota con il pianeta. Resistenza e portanza (spazioplano), pressione dinamica, onde d’urto, numero di Mach.
+- **Rientro**: riscaldamento convettivo di Sutton-Graves, equilibrio radiativo dello scudo termico,
+  sovraccarichi, paracadute che si strappano se aperti troppo veloci. Senza scudo il veicolo brucia.
+- **Contatti**: gambe ammortizzate, carrello con attrito e freni, ammaraggio, terreno che ruota con il
+  pianeta. Attracco con cattura morbida solo a contatto, sotto 0,5 m/s, entro 25 cm e 7°.
+- **Accelerazione del tempo** fino a ×1.000.000 “sui binari” (orbita kepleriana esatta), con arresto
+  automatico prima di un nodo di manovra, di un cambio di sfera d’influenza o dell’atmosfera.
 
-### Velivoli
-Undici aerei, civili e militari, ognuno con le sue prestazioni, il suo modello 3D e la sua livrea.
+### Sistema Solare reale
+Sole, Mercurio, Venere, Terra, Luna, Marte con Phobos e Deimos, Giove, Saturno con gli anelli, Urano e
+Nettuno. Posizioni dagli elementi orbitali medi J2000 del JPL, orientamenti e periodi di rotazione dai
+modelli IAU, Luna in rotazione sincrona. La data di partenza si sceglie nel volo libero (2000–2050).
 
-| Velivolo | Tipo | Caratteristiche |
+Superfici reali: la Terra con le immagini NASA Blue Marble e i rilievi NOAA ETOPO1, la Luna e Marte con
+le mappe NASA e i rilievi dei grandi bacini e crateri, atmosfera con diffusione di Rayleigh e Mie,
+nuvole, oceani, terreno a livelli di dettaglio (cubo-sfera a quadtree) fino ai pochi metri dal suolo.
+
+Luoghi reali: **Centro Spaziale Luigi Broglio** (Malindi, Kenya, 3° sud), **spazioporto di
+Taranto-Grottaglie** (pista 17), **Mare della Tranquillità** (accanto al sito dell’Apollo 11) e
+**cratere Jezero** su Marte. La Stazione Aurora, la navetta Selene e il campo di detriti Kessler-7 sono
+immaginari ma orbitano con la stessa fisica.
+
+### Veicoli
+Veicoli immaginari con masse, spinte e impulsi specifici di veicoli reali della stessa classe.
+
+| Veicolo | Tipo | Prestazioni |
 |---|---|---|
-| **Falco T-172** | monomotore a pistoni da addestramento (classe C172) | strumenti analogici "six-pack", radio, ADF, autopilota a 2 assi |
-| **Allodola X-300** | monoplano acrobatico (classe Extra 300) | ala simmetrica, rollio 400°/s, ±10 g, ruotino di coda, fumogeni |
-| **Gabbiano BT-44** | bimotore a pistoni (classe PA-44) | eliche controrotanti a giri costanti, carrello retrattile, coda a T, avaria di un motore |
-| **Condor CJ-5** | business jet (classe Citation CJ4) | motori posteriori, coda a T, glass cockpit, tangenza 45.000 ft |
-| **AX-320 Aquila** | bireattore di linea fly-by-wire (classe A320) | glass cockpit PFD/ND/ECAM, FCU, autothrottle, ILS, autoland |
-| **Picchio T-21** | addestratore militare turboelica (classe PC-21) | turboelica da 1600 shp, elica pentapala, HUD |
-| **Freccia JT-9** | jet da addestramento acrobatico (classe MB-339) | HUD, strumenti analogici, fumogeni tricolori |
-| **Vespa V-51** | caccia storico a pistoni (classe P-51D) | V-12 sovralimentato, elica a giri costanti, coppia forte, ruotino di coda |
-| **Bisonte C-30** | trasporto tattico quadrimotore (classe C-130J) | quattro turboeliche, ala alta, piste corte, inversione del passo |
-| **Folgore FX-16** | caccia multiruolo (classe F-16) | postbruciatore, Mach 2, fly-by-wire da caccia con 9 g e limitatore di incidenza |
-| **Grifone EF-2** | caccia bimotore canard-delta (classe Typhoon) | due motori con postbruciatore, supercrociera oltre Mach 1,2 |
+| **Colibrì MP-1** | modulo di manovra pilotato | Δv 560 m/s, assistenza al volo sulla velocità relativa |
+| **Rondine CR-4** | capsula con modulo di servizio (classe Orion) | Δv 1.320 m/s, scudo termico, paracadute, porta di attracco |
+| **Rondine con stadio TLI** | capsula con stadio criogenico | Δv 4.200 + 1.320 m/s: iniezione translunare e ritorno |
+| **Grillo LM-3** | modulo lunare a due stadi (classe Apollo LM) | discesa 45 kN regolabile 10–100 %, salita 16 kN |
+| **Albatro SP-1** | spazioplano a corpo portante (classe Dream Chaser) | rientro a 40° d’incidenza, planata fino alla pista |
+| **Aquila V con Rondine** | lanciatore a due stadi (classe Falcon 9) | 528 t al decollo, Δv 10,8 km/s, autopilota di ascesa |
+| **Ulisse NTR** | nave interplanetaria a propulsione nucleare termica | 3 motori da Isp 900 s, Δv 9.200 m/s |
 
-Sui caccia la manetta oltre il 90% accende il **postbruciatore** (fiamma visibile e consumi
-quadruplicati); i turboelica e i motori a pistoni con elica a giri costanti, i compressori dei motori
-storici, la resistenza d'onda supersonica e la coppia delle eliche sono simulati.
-
-### Sistemi e comandi
-Impianto elettrico (batteria, alternatore, avionica), carburante con selettore e serbatoi, flap e slat,
-carrello retrattile, spoiler e aerofreni (anche automatici in atterraggio), autobrake, freno di parcheggio,
-luci (navigazione, anticollisione, strobo, atterraggio, rullaggio, pannello), riscaldamento Pitot,
-anti-ghiaccio, APU, avviamento a freddo completo oppure automatico (**Ctrl+E**).
-
-Autopilota con modi **HDG, NAV (VOR/GPS), APR (LOC + GS), ALT, VS, FLC**, autothrottle e **autoland**
-per l'aereo di linea. Radio NAV1/NAV2 con VOR/DME e ILS (con marker), ADF/NDB, COM con **ATIS** parlato,
-transponder, GPS con piano di volo e "diretto a".
-
-### Mondo
-Regione mediterranea immaginaria di 180 × 180 km generata proceduralmente: costa, isole, pianure coltivate,
-foreste, laghi, catene montuose fino a 2.400 m con valli percorribili, città, **6 aeroporti** (da una pista
-internazionale di 3.200 m con ILS a una pista di montagna di 800 m e una pista in erba), luci di pista,
-sentieri di avvicinamento luminosi e **PAPI** funzionanti.
-
-### Grafica
-Cielo dinamico con sole, luna e stelle, colori dell'alba e del tramonto e foschia che si dirada
-con la quota e sfuma il paesaggio nell'orizzonte. Mare e laghi con onde animate, riflessi del cielo,
-scintillio del sole e fondali visibili sotto costa. Terreno con campi coltivati e siepi, boschi,
-rocce e nevai; cumuli morbidi illuminati dal sole e strati coperti; ombra del velivolo (visibile anche
-dal cockpit). Di notte: luci di pista, avvicinamento con lampeggiatori sequenziali, PAPI, raccordi,
-città illuminate e finestre accese. Velivoli con livree, pannellature, finestrini lucidi e riflessi
-dell'ambiente; bagliore e riflessi dell'obiettivo controsole.
-
-Da vicino il terreno usa texture di materiale (erba, chiome, roccia con proiezione triplanare e
-rilievo, sabbia, neve, solchi dei campi, asfalto e cemento) miscelate per tipo di suolo. Sono generate
-in modo deterministico e senza giunzioni da `tools/make-textures.py` (Python con numpy, scipy e
-Pillow) e salvate in `assets/textures/`, quindi il gioco non richiede passaggi di build.
+### Strumenti e assistenza
+- **Sfera di assetto** con i marcatori prograde, retrograde, normale, radiale, bersaglio e manovra.
+- **SAS** con mantenimento dell’assetto e dei vettori orbitali, allineamento alla porta di attracco,
+  controllo della velocità verticale per l’atterraggio, “stop” della velocità relativa.
+- **Computer di navigazione**: circolarizzazione, Hohmann, deorbita, cambio di piano, rendezvous,
+  trasferimento verso la Luna o un pianeta (Lambert e porkchop), ritorno, correzione di rotta; nodi di
+  manovra modificabili, previsione dell’orbita risultante e del passaggio al periasse del corpo d’arrivo,
+  accensione automatica.
+- **Mappa orbitale** con le coniche, apoasse e periasse, sfere d’influenza e incontri.
+- Indicatori di attracco: distanza, disallineamento, velocità di avvicinamento ed errore d’assetto.
 
 ### Missioni
-43 missioni per tutti gli aerei, filtrabili per civili, militari, aereo e "da fare", con briefing,
-obiettivi, punteggio, stelle e analisi dell'atterraggio:
+Diciassette missioni in cinque categorie, con briefing, obiettivi in sequenza, punteggio e stelle:
 
-- **Addestramento e civili**: primo decollo, circuito, touch and go, atterraggio di precisione, avaria
-  motore, navigazione VOR, avviamento a freddo, montagna, ILS nella nebbia, voli di linea, vento al traverso,
-  gita al lago, pista corta dell'Isola Serena, executive per Borgo, salita a 37.000 ft.
-- **Acrobazia**: looping, volo rovescio, programma acrobatico con tonneau, looping e virata a 5 g,
-  percorso ad anelli, looping con i fumogeni.
-- **Bimotore**: avaria di un motore al decollo con circuito monomotore, VOR e ILS a Borgo.
-- **Militari**: muro del suono (Mach 1,4), decollo su allarme a tempo, intercettazione di un traffico
-  sconosciuto, virata a 7 g, supercrociera senza postbruciatore, intercettazione notturna, navigazione
-  tattica a bassa quota tra le colline, scorta di un quadrimotore con il caccia storico, lancio di
-  rifornimenti, pista corta e ponte aereo per l'isola con il quadrimotore.
+- **Addestramento**: primi impulsi RCS, stabilizzazione, attracco alla porta di prua e a quella zenitale,
+  slalom nel campo di detriti.
+- **Orbita terrestre**: trasferimento di Hohmann, appuntamento con la Stazione Aurora.
+- **Terra**: rientro e ammaraggio nell’Oceano Indiano, lancio da Malindi, atterraggio in planata a Grottaglie.
+- **Luna**: allunaggio a Tranquillitatis, discesa motorizzata dall’orbita, decollo lunare, iniezione
+  translunare, ritorno con rientro a 11 km/s.
+- **Marte**: partenza nella finestra del 2033 con l’Ulisse, incontro con Phobos.
 
-I bersagli da intercettare sono aerei veri che volano lungo la loro rotta: distanza, direzione e quota
-compaiono in alto e sulla mappa.
-
-## Installazione (Windows)
-
-1. Scaricare l'installer o la versione portable dalla pagina **Releases** del repository, oppure dagli
-   artifact dell'ultima esecuzione della GitHub Action **"Build Windows"** (`CieliAperti-Windows`).
-2. Avviare `Cieli Aperti Flight Simulator Setup x.y.z.exe` (installazione) oppure
-   `CieliAperti-Portable-x.y.z.exe` (nessuna installazione).
-
-Requisiti consigliati: Windows 10/11 64 bit, scheda video con supporto WebGL2 (qualsiasi GPU degli ultimi
-10 anni), 4 GB di RAM. Joystick, HOTAS e gamepad sono supportati e configurabili.
+### Audio e voce
+Motori, RCS, vento al rientro, impatti e separazioni sintetizzati in tempo reale; annunci vocali in
+italiano dal controllo missione (sintesi vocale del browser, voce e velocità regolabili).
 
 ## Avvio dal codice sorgente
 
@@ -107,132 +86,78 @@ Requisiti consigliati: Windows 10/11 64 bit, scheda video con supporto WebGL2 (q
 npm ci
 npm start            # avvia l'app desktop (Electron)
 npm run serve        # oppure: server locale, poi aprire http://localhost:8080 nel browser
-npm test             # suite di test della fisica di volo
-npm run smoke        # verifica integrata nel browser (richiede Chrome/Chromium)
+npm test             # suite di test della fisica e delle missioni
+npm run smoke        # prova integrata nel browser (richiede Chrome/Chromium)
+npm run smoke:mobile # prova touch: smartphone, iPad, iPhone
 ```
 
-La verifica `smoke` avvia e chiude un server di prova su una porta libera, esercita menu, volo libero,
-comandi, pausa, tre velivoli e avvio missione, e salva risultati e screenshot in `.smoke/`.
-Se Chrome/Chromium non viene trovato automaticamente, imposta `CHROMIUM_PATH` al suo eseguibile.
-La suite `npm test` comprende anche missioni, input, audio e regressioni dei riavvii. Node.js 24 è
-stato verificato in sviluppo; la CI usa Node.js 22. Non sono richiesti servizi esterni o chiavi API.
-
-### Cockpit e aiuto
-
-La vista cockpit dispone di console laterali: **Impianti** a sinistra per alimentazione, motori,
-luci e comandi di volo; **Radio** a destra per autopilota, navigazione e strumenti. I pulsanti
-nel pannello centrale aprono o richiudono le console. Puoi scorrere e richiudere le sezioni;
-sugli schermi piccoli si apre una console alla volta. I comandi mostrati rispettano gli impianti
-del velivolo selezionato.
-
-Il pulsante **Aiuto** in alto o **F12** apre una guida rapida, tutti i comandi e un glossario
-ricercabile di 80 termini. Il volo e il timer missione restano fermi durante la consultazione;
-**Esc** o **F12** chiude la guida e ripristina la pausa precedente.
+`npm test` verifica tra l’altro le effemeridi (perielio e afelio della Terra, distanza della Luna,
+giorno siderale), la propagazione kepleriana e il solutore di Lambert, l’equazione del razzo per ogni
+veicolo, attracco, allunaggio, lancio fino all’orbita, rientro con ammaraggio e la distruzione senza
+scudo termico, iniezione translunare (≈ 3,1 km/s) e trasferimento verso Marte, tutte le missioni e tutti
+i punti di partenza. Se Chromium non è in un percorso standard: `CHROMIUM_PATH=/percorso/chrome npm run smoke`.
 
 ### Smartphone e tablet
+Su schermi touch compaiono due levette (rotazione e traslazione RCS), la manetta e i pulsanti rapidi
+(SAS, RCS, stop, azione, vista, mappa, navigazione, tempo). Ogni comando cattura il proprio dito, quindi
+si usano insieme; trascinando sulla scena ci si guarda intorno. La qualità grafica si adatta al
+dispositivo (iPad e iPhone recenti a 60 fps con antialiasing). L’app è installabile a schermo intero.
 
-La versione web dispone di controlli multitouch: cloche virtuale, manetta, pedaliera e freni
-si usano anche contemporaneamente. Il neutro della cloche è il punto in cui appoggi il dito (nessuno
-scatto) e la risposta (Precisa, Normale, Diretta) si sceglie in **Comandi**; **TRIM** trasforma
-il comando tenuto in compensazione, così puoi rilasciare la cloche. Tutti i pulsanti rispondono
-anche mentre un altro dito tiene la cloche; con la tastiera il trim è **T**, sul gamepad la croce
-direzionale (stick destro premuto per compensare). I pulsanti FLAP, CARRELLO (quando previsto), VISTA e PANNELLO
-consentono di volare senza tastiera. Trascina il panorama per guardarti intorno; nella mappa
-allarga o avvicina due dita per lo zoom.
-
-Sugli smartphone la prima configurazione usa qualità bassa, pannello compatto e un obiettivo di
-30 fps; il framebuffer è limitato e il terreno usa 49 tasselli. Su **iPhone** (anche con «sito desktop»
-attivo in Safari) parte in qualità media a 60 fps con risoluzione 2× e antialiasing; comandi, messaggi
-e HUD rispettano Dynamic Island, angoli e indicatore Home, anche in orizzontale con le barre di Safari. Su **iPad** e tablet (riconosciuti anche
-quando Safari si presenta come Mac) parte in qualità media a 60 fps, con antialiasing, risoluzione
-1,5× e pannello strumenti completo anche in verticale, comandi touch più grandi e tasselli generati in
-un Web Worker per un volo senza scatti. Su tutti i dispositivi touch la risoluzione si adatta da sola
-se il frame rate scende. Le scelte salvate vengono rispettate.
-
-Su iPad conviene aggiungere il gioco alla schermata Home (Safari → Condividi → «Aggiungi alla schermata
-Home»): si apre a schermo intero senza barre del browser. Con una tastiera collegata, che non ha i tasti
-F, la manetta è su `=` / `-` e i flap su `[` / `]`. Menu, missioni, aiuto e console si adattano a verticale e
-orizzontale, con pulsanti di almeno 44 px e spazi per le aree sicure del dispositivo.
-Quando il browser passa in secondo piano il volo viene messo in pausa; i comandi momentanei
-si rilasciano anche in caso di gesto interrotto o rotazione dello schermo.
-
-```bash
-npm run smoke:mobile
-# Oppure sul pacchetto pronto per Pages:
-SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/ npm run smoke:mobile
-```
-
-La prova automatica usa Chromium con emulazione touch e tre dita simultanee; verifica layout
-da 320 × 568 a 768 × 1024, incluso 844 × 390 orizzontale, e un iPad emulato (user agent iPadOS,
-820 × 1180 e 1180 × 820) e un iPhone 16 con le sue zone sicure (393 × 852 e 852 × 340). Non sostituisce una misura delle
-prestazioni su hardware Android/iOS reale. Il workflow Pages esegue sia la prova desktop sia
-quella mobile prima del deploy. Il bundle web include solo i moduli three.js effettivamente usati.
-
-### Versione web e GitHub Pages
-
+### Versione web
 ```bash
 npm run build:web
 SMOKE_ROOT=dist/web SMOKE_BASE_PATH=/fly/ npm run smoke
 ```
+`dist/web/` contiene solo i file della versione browser, le mappe planetarie e la versione bloccata di
+three.js: nessuna chiave API, CDN o server applicativo. Il workflow Pages del repository pubblica il
+ramo della versione aeronautica originale.
 
-`dist/web/` contiene solo i file della versione browser e la versione bloccata di three.js;
-non richiede chiavi API, CDN o un server applicativo. I salvataggi rimangono nel browser utilizzato.
-La seconda istruzione verifica il pacchetto sotto `/fly/`, lo stesso percorso previsto su Pages.
-
-Il workflow **Publish GitHub Pages** esegue test, build e prova browser prima del deploy a ogni
-push su `claude/epic-hypatia-ctxoo9`; si può avviare anche manualmente da Actions. Nel repository,
-**Settings → Pages → Build and deployment → Source** deve essere **GitHub Actions**. L’abilitazione
-iniziale di Pages richiede un amministratore del repository; il workflow usa solo i permessi
-`pages: write` e `id-token: write` durante la pubblicazione.
-
-### Creare l'eseguibile per Windows
-
+### Eseguibile per Windows
 ```bash
 npm run dist:win     # installer NSIS + versione portable in release/
 ```
-
-La build può essere generata anche da Linux/macOS; la GitHub Action `.github/workflows/build-windows.yml`
-la esegue automaticamente su `windows-latest` a ogni push e pubblica una Release per i tag `v*`.
+La GitHub Action `.github/workflows/build-windows.yml` esegue i test e crea il pacchetto a ogni push.
 
 ## Comandi principali
 
 | Funzione | Tasti |
 |---|---|
-| Barra (beccheggio / rollio) | Frecce o tastierino numerico 8/2/4/6 |
-| Pedaliera | Q / E oppure Num0 / NumInvio |
-| Manetta | F1 (minimo) · F2 / F3 (−/+) · F4 (massimo) |
-| Flap | F5 · F6 · F7 · F8 |
-| Carrello · Freni · Freno di parcheggio | G · `.` (o Spazio) · Ctrl + `.` |
-| Trim | Num7 / Num1 oppure Home / Fine |
-| Autopilota | Z (HDG Ctrl+H, ALT Ctrl+Z, NAV Ctrl+N, APR Ctrl+A) |
-| Avviamento automatico | Ctrl + E |
-| Viste · Pannello · Mappa · Checklist | S · W · M · K |
-| Pausa · Menu | P · Esc |
+| Beccheggio · imbardata · rollio | W / S · A / D · Q / E (anche frecce) |
+| Traslazione RCS avanti / indietro · destra / sinistra · su / giù | H / N · L / J · I / K |
+| Manetta massima · spenta · regola | Z · X · + / − |
+| Azione: separa lo stadio, paracadute, sgancio | Spazio |
+| SAS · RCS · modi SAS | T · R · 1–0 |
+| Stop della velocità relativa | tieni premuto F |
+| Computer di navigazione · esegui la manovra | O · Invio |
+| Mappa orbitale · bersaglio successivo | M · Tab |
+| Accelera / rallenta il tempo · tempo reale | . / , · / |
+| Viste · cockpit · esterna | C · F9 · F10 |
+| Pausa · menu · aiuto | P · Esc · F12 |
 
-L'elenco completo è nel gioco (menu **Comandi**) e in [`docs/CONTROLS.md`](docs/CONTROLS.md).
-Tutti gli interruttori, le manopole e le leve del cockpit si possono usare anche con il mouse
-(clic, rotella, trascinamento).
+L’elenco completo è nel gioco (menu **Comandi**) e in [`docs/CONTROLS.md`](docs/CONTROLS.md); gamepad e
+joystick sono configurabili.
 
 ## Struttura del progetto
 
 ```
-electron/        app desktop (finestra, schermo intero, preload)
-src/core/        matematica, unità, rumore procedurale
-src/sim/         fisica di volo, motori, carrello, sistemi, autopilota, radionavigazione, velivoli
-src/world/       dati del mondo (aeroporti, radioassistenze, città) e modello del terreno
-src/render/      grafica 3D three.js (terreno LOD, acqua, cielo, nuvole, aeroporti, aerei, telecamere)
-src/cockpit/     pannelli strumenti 2D interattivi e HUD
-src/input/       tastiera, joystick, gamepad, mouse
-src/audio/       suoni sintetizzati (motori, vento, avvisi, callout)
-src/missions/    missioni, punteggi, checklist
-src/ui/          menu e interfacce
-tests/           test automatici della fisica
-docs/            architettura e comandi
+electron/        app desktop
+src/core/        matematica, rumore procedurale, riconoscimento del dispositivo
+src/sim/         Sistema Solare, terreni, orbite, veicoli, dinamica, assistenza, manovre, simulazione
+src/render/      grafica three.js: pianeti a LOD, atmosfera, spazio, veicoli, stazioni, effetti
+src/input/       tastiera, mouse, gamepad, joystick, controlli touch
+src/audio/       suoni sintetizzati e voce
+src/missions/    missioni, punteggi, progressi
+src/ui/          menu, volo libero, strumenti di volo, aiuto e glossario
+assets/planets/  mappe e rilievi di Terra, Luna, Marte e immagini dei pianeti
+tools/           server locale, build web, prove nel browser, generazione dei dati planetari
+tests/           test automatici
 ```
 
 Dettagli tecnici in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Licenza
+## Dati e licenza
 
-MIT. Velivoli, aeroporti e luoghi sono immaginari; le somiglianze con aeromobili reali riguardano solo le
-prestazioni.
+Codice con licenza MIT. Posizioni dei pianeti: JPL “Keplerian Elements for Approximate Positions of the
+Major Planets”; rotazioni: rapporto IAU WGCCRE. Terra: NASA Blue Marble Next Generation e NOAA ETOPO1
+(dominio pubblico, dal pacchetto basemap-data); Luna, Marte e pianeti: NASA-3D-Resources (dominio
+pubblico). Veicoli, Stazione Aurora, navetta Selene e campo di detriti sono immaginari.

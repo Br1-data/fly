@@ -227,8 +227,36 @@
   .fu-dock { width: 130px; height: 130px; }
   .fu-title { display: none; }
 }
-.touch-device .fu-bottom { bottom: auto; top: calc(48px + env(safe-area-inset-top)); left: 50%; padding: 6px; }
+/* Touch devices: the quick buttons of the touch layer replace NAV / MAPPA / VISTA of the top
+   bar; the navball sits between the sticks (or above them on narrow portrait screens). */
+.touch-device .fu-opt { display: none; }
+/* The touch layer is hidden on the map (one finger rotates it): keep a way back. */
+.touch-device .fu.map-view .fu-optmap, .touch-device .fu.map-view .fu-optnav { display: inline-block; }
+.touch-device .fu-btn { min-width: 44px; min-height: 44px; }
+.touch-device .fu-top { top: calc(6px + env(safe-area-inset-top)); }
 .touch-device .fu-right { display: none; }
-.touch-device .fu-ball { width: 110px; height: 110px; }
-.touch-device .fu-mission { bottom: auto; top: calc(250px + env(safe-area-inset-top)); width: 200px; }
-.touch-device .fu-box { max-height: 40vh; overflow: auto; }
+.touch-device .fu-box { top: calc(58px + env(safe-area-inset-top)); width: min(230px, calc(50vw - 14px)); max-height: 28vh; overflow: auto; font-size: 11px; }
+.touch-device .fu-dock { width: 110px; height: 110px; }
+.touch-device .fu-ball { width: 100px; height: 100px; }
+.touch-device .fu-bottom { padding: 4px 6px; bottom: calc(14px + env(safe-area-inset-bottom)); }
+.touch-device .fu-mission { left: 50%; transform: translateX(-50%); bottom: auto; top: calc(58px + env(safe-area-inset-top)); width: min(260px, calc(100vw - 2 * min(230px, calc(50vw - 14px)) - 36px)); max-height: 24vh; overflow: auto; font-size: 11px; }
+.touch-device .fu-nav { width: min(360px, calc(100vw - 16px)); max-height: calc(100% - 64px - 40vh); }
+.touch-device .fu-toasts { top: calc(30vh + 60px); }
+@media (max-width: 699px) and (orientation: portrait) {
+  .touch-device .fu-box { max-height: 26vh; }
+  .touch-device .fu-bottom { left: calc(8px + env(safe-area-inset-left)); transform: none; bottom: calc(28vw * 1.25 + 160px + env(safe-area-inset-bottom)); }
+  .touch-device .fu-mission { left: auto; right: calc(8px + env(safe-area-inset-right)); transform: none; top: auto; bottom: calc(28vw * 1.25 + 160px + env(safe-area-inset-bottom)); width: calc(100vw - 150px); max-height: 120px; }
+}
+@media (max-height: 460px) {
+  .touch-device .fu-ball { width: 84px; height: 84px; }
+  .touch-device .fu-box { max-height: 30vh; }
+}
+@media (max-height: 360px) {
+  .touch-device .fu-box, .touch-device .fu-mission { max-height: 22vh; }
+}
+@media (max-height: 700px) and (orientation: portrait) {
+  .touch-device .fu-box { max-height: 18vh; }
+}
+@media (max-height: 360px) {
+  .touch-device .fu-time { display: none; }
+}

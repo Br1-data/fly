@@ -62,6 +62,9 @@ export class TouchControls {
     const fbRow = el('div', 'touch-row');
     this.fwd = this.holdButton(el, 'AVANTI', 'Traslazione avanti', (on) => (this.fwdHeld = on ? 1 : this.fwdHeld === 1 ? 0 : this.fwdHeld));
     this.back = this.holdButton(el, 'INDIETRO', 'Traslazione indietro', (on) => (this.fwdHeld = on ? -1 : this.fwdHeld === -1 ? 0 : this.fwdHeld));
+    // Short labels for narrow screens (see touch.css).
+    this.back.dataset.short = 'IND.';
+    this.fwd.dataset.short = 'AV.';
     fbRow.append(this.back, this.fwd);
     transCol.append(this.trans.box, fbRow);
     const power = el('div', 'touch-power');

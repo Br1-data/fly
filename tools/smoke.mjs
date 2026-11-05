@@ -39,115 +39,108 @@ try {
   await ready('menu');
   check('Menu iniziale e scena 3D', await page.evaluate(() => window.__cieli.renderer.getStats().triangles > 0));
   await page.screenshot({ path: path.join(output, 'menu.png') });
-  await page.getByRole('button', { name: /Volo libero/ }).click();
-  await page.getByRole('button', { name: /Vola!/ }).click();
-  await ready('flight');
-  check('Volo libero avviato dal menu', await page.evaluate(() => window.__cieli.flightSim.def.id === 'trainer'));
-  await page.getByRole('button', { name: 'FRENO P', exact: true }).click();
-  check('Cockpit: freno di parcheggio cliccabile', await page.evaluate(() => window.__cieli.flightSim.fm.systems.parkingBrake));
-  const headingBefore = await page.evaluate(() => window.__cieli.flightSim.ap.hdgBug);
-  await page.getByRole('button', { name: 'Aumenta HDG', exact: true }).click();
-  check('Cockpit: manopola di prua', await page.evaluate(() => window.__cieli.flightSim.ap.hdgBug) === (headingBefore + 1) % 360);
-  await page.keyboard.press('F4');
-  check('Tastiera: manetta massima', await page.evaluate(() => window.__cieli.flightSim.pilot.throttle === 1));
-  await page.keyboard.press('F1');
-  await page.keyboard.press('F7');
-  check('Tastiera: flap', await page.evaluate(() => window.__cieli.flightSim.fm.systems.flapsLever > 0));
-  await page.keyboard.press('KeyK');
-  await page.locator('.checklist-overlay.visible').waitFor();
-  check('Checklist del velivolo', await page.locator('.cl-items li').count() > 0);
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('KeyM');
-  await page.locator('.map-overlay.visible').waitFor();
-  check('Mappa navigabile', await page.locator('.map-canvas').isVisible());
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: /Impostazioni/ }).click();
-  check('Pausa: input disattivato nelle impostazioni', await page.evaluate(() => window.__cieli.state === 'flight-settings' && window.__cieli.flightSim.paused));
-  const before = await page.evaluate(() => window.__cieli.flightSim.pilot.throttle);
-  await page.keyboard.press('F4');
-  check('I menu non modificano la manetta', await page.evaluate(() => window.__cieli.flightSim.pilot.throttle) === before);
-  await page.getByRole('button', { name: /Indietro/ }).click();
-  await page.getByRole('button', { name: /Riprendi/ }).click();
-  await ready('flight');
-  check('Ripresa del volo', await page.evaluate(() => !window.__cieli.flightSim.paused));
-  await page.getByRole('button', { name: /Aiuto.*F12/ }).click();
-  await page.getByRole('dialog', { name: 'Aiuto al volo' }).waitFor();
-  check('Aiuto: mette in pausa e disabilita i comandi', await page.evaluate(() => window.__cieli.flightSim.paused && !window.__cieli.input.enabled && document.getElementById('cockpit-root').inert));
-  await page.getByRole('tab', { name: 'Glossario' }).click();
-  await page.getByRole('searchbox').fill('QNH');
-  check('Glossario: ricerca e spiegazione del QNH', await page.locator('.help-term').count() > 0 && (await page.locator('.help-term').first().textContent()).toLowerCase().includes('pressione'));
-  await page.screenshot({ path: path.join(output, 'help-glossary.png') });
-  await page.getByRole('tab', { name: 'Comandi', exact: true }).click();
-  await page.getByRole('searchbox').fill('NAV2');
-  check('Aiuto: include comandi del cockpit senza scorciatoia', await page.locator('.help-cockpit-item').count() > 0);
-  await page.keyboard.press('F12');
-  check('F12 funziona nei campi e ripristina il volo', await page.evaluate(() => !window.__cieli.overlay && !window.__cieli.flightSim.paused && window.__cieli.input.enabled));
-  await page.keyboard.press('KeyP');
-  await page.keyboard.press('F12');
-  await page.keyboard.press('Escape');
-  check('Aiuto: conserva la pausa precedente', await page.evaluate(() => window.__cieli.flightSim.paused && window.__cieli.input.enabled));
-  await page.keyboard.press('KeyP');
-  await page.keyboard.press('Escape');
-  await page.locator('.overlay.visible .dialog.pause').waitFor();
-  await page.locator('.overlay.visible').getByRole('button', { name: /Aiuto e glossario/ }).click();
-  await page.getByRole('dialog', { name: 'Aiuto al volo' }).waitFor();
-  await page.keyboard.press('Escape');
-  await page.locator('.overlay.visible .dialog.pause').waitFor();
-  check('Aiuto: torna al menu di pausa', await page.locator('.overlay.visible .dialog.pause').count() === 1 && await page.evaluate(() => window.__cieli.flightSim.paused && !window.__cieli.input.enabled));
-  await page.locator('.overlay.visible').getByRole('button', { name: /Riprendi/ }).click();
-  await page.screenshot({ path: path.join(output, 'trainer.png') });
-  await page.setViewportSize({ width: 800, height: 640 });
-  await page.getByRole('button', { name: 'Mostra o nascondi console impianti' }).click();
-  await page.getByRole('button', { name: 'Antighiaccio', exact: true }).click();
-  check('Console sinistra accessibile su schermi piccoli', await page.evaluate(() => window.__cieli.flightSim.fm.systems.antiIce));
-  await page.getByRole('button', { name: 'Mostra o nascondi console radio' }).click();
-  check('Console compatte: alternanza senza perdere comandi', await page.locator('.ca-right').isVisible() && !await page.locator('.ca-left').isVisible());
-  const navStandby = await page.evaluate(() => window.__cieli.flightSim.nav2.standby);
-  await page.getByRole('button', { name: 'Aumenta NAV2', exact: true }).click();
-  await page.getByRole('button', { name: 'Scambia NAV2', exact: true }).click();
-  check('Console radio: sintonia e scambio NAV2', Math.abs(await page.evaluate(() => window.__cieli.flightSim.nav2.active) - navStandby - 0.05) < 0.001);
-  await page.getByRole('combobox', { name: 'Cifra transponder 1' }).selectOption('4');
-  check('Console radio: transponder utilizzabile', await page.evaluate(() => window.__cieli.flightSim.xpdr.code === 4000));
-  await page.screenshot({ path: path.join(output, 'cockpit-compact.png') });
-  await page.setViewportSize({ width: 1366, height: 900 });
-  await page.waitForFunction(() => window.__cieli.cockpit.width === 1366);
-  for (const name of ['Mostra o nascondi console impianti', 'Mostra o nascondi console radio']) {
-    const toggle = page.getByRole('button', { name });
-    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
-  }
+  const sim = (fn) => page.evaluate(fn);
 
-  const fleet = await page.evaluate(async () => (await import(new URL('src/sim/aircraft/index.js', document.baseURI).href)).AIRCRAFT_LIST.map((d) => d.id).filter((id) => id !== 'trainer'));
-  check(`Hangar con ${fleet.length + 1} velivoli`, fleet.length >= 10);
-  for (const aircraft of fleet) {
-    await page.evaluate(async (id) => {
-      const app = window.__cieli;
-      await app.startFlight({ aircraft: id, start: { type: 'air', airport: 'XAQU', altitudeFt: 5000 }, time: 14 }, null);
-    }, aircraft);
+  // Free flight: capsule near the station (defaults).
+  await page.getByRole('button', { name: /Volo libero/ }).click();
+  await page.getByRole('button', { name: /Rondine CR-4/ }).click();
+  await page.getByRole('button', { name: /Vicino alla Stazione Aurora/ }).click();
+  await page.getByRole('button', { name: /Parti!/ }).click();
+  await ready('flight');
+  check('Volo libero avviato dal menu', await sim(() => window.__cieli.flightSim.def.id === 'capsule' && window.__cieli.flightSim.target?.object?.id === 'aurora'));
+  check('Porta di prua a 150 m', await sim(() => Math.abs(window.__cieli.flightSim.info.port.range - 150) < 5));
+  await page.keyboard.press('KeyZ');
+  check('Tastiera: manetta massima', await sim(() => window.__cieli.flightSim.pilot.throttle === 1));
+  await page.keyboard.press('KeyX');
+  await page.keyboard.press('Digit3');
+  check('Tastiera: SAS retrograde', await sim(() => window.__cieli.flightSim.sas.mode === 'retrograde'));
+  await page.locator('.fu-sasbtn', { hasText: /^PRO$/ }).click();
+  check('Pulsante SAS prograde', await sim(() => window.__cieli.flightSim.sas.mode === 'prograde'));
+  await page.getByRole('button', { name: /Computer di navigazione/ }).click();
+  await page.locator('.fu-nav.open').waitFor();
+  await page.getByRole('button', { name: 'Circolarizza all’apoasse' }).click();
+  await page.waitForFunction(() => !!window.__cieli.flightSim.node);
+  check('Computer di navigazione: nodo di manovra', await sim(() => Number.isFinite(window.__cieli.flightSim.node.pro)));
+  await page.getByRole('button', { name: 'Elimina nodo' }).click();
+  check('Nodo eliminato', await sim(() => !window.__cieli.flightSim.node));
+  await page.keyboard.press('KeyO');
+  await page.keyboard.press('KeyM');
+  check('Mappa orbitale', await sim(() => window.__cieli.view === 'map'));
+  await page.screenshot({ path: path.join(output, 'map.png') });
+  await page.keyboard.press('KeyM');
+  check('Ritorno dalla mappa', await sim(() => window.__cieli.view !== 'map'));
+  await page.keyboard.press('Period');
+  await page.keyboard.press('Period');
+  check('Accelerazione del tempo', await sim(() => window.__cieli.flightSim.warpIndex > 0));
+  await page.keyboard.press('Slash');
+  check('Tempo reale', await sim(() => window.__cieli.flightSim.warpIndex === 0));
+
+  // Pause menu and settings.
+  await page.keyboard.press('Escape');
+  await page.locator('.overlay.visible .dialog.pause').waitFor();
+  await page.locator('.overlay.visible').getByRole('button', { name: /Impostazioni/ }).click();
+  check('Pausa: input disattivato nelle impostazioni', await sim(() => window.__cieli.state === 'flight-settings' && window.__cieli.flightSim.paused));
+  const before = await sim(() => window.__cieli.flightSim.pilot.throttle);
+  await page.keyboard.press('KeyZ');
+  check('I menu non modificano la manetta', await sim(() => window.__cieli.flightSim.pilot.throttle) === before);
+  await page.getByRole('button', { name: /Indietro/ }).click();
+  await page.locator('.overlay.visible').getByRole('button', { name: /Riprendi/ }).click();
+  await ready('flight');
+  check('Ripresa del volo', await sim(() => !window.__cieli.flightSim.paused && window.__cieli.input.enabled));
+
+  // Help and glossary.
+  await page.getByRole('button', { name: /Aiuto e glossario \(F12\)/ }).click();
+  await page.getByRole('dialog', { name: 'Aiuto al volo' }).waitFor();
+  check('Aiuto: mette in pausa e disabilita i comandi', await sim(() => window.__cieli.flightSim.paused && !window.__cieli.input.enabled));
+  await page.getByRole('tab', { name: 'Glossario' }).click();
+  await page.getByRole('searchbox').fill('periasse');
+  check('Glossario: ricerca del periasse', await page.locator('.help-term').count() > 0);
+  await page.screenshot({ path: path.join(output, 'help-glossary.png') });
+  await page.keyboard.press('F12');
+  check('F12 chiude l’aiuto e riprende il volo', await sim(() => !window.__cieli.overlay && !window.__cieli.flightSim.paused && window.__cieli.input.enabled));
+  await page.screenshot({ path: path.join(output, 'capsule.png') });
+
+  // Every vehicle in a suitable place.
+  const flights = [
+    ['pod', { type: 'near', object: 'aurora', port: 'prua', distance: 60 }, { id: 'aurora', port: 'prua' }],
+    ['translunar', { type: 'orbit', body: 'earth', altitude: 300e3, inclination: 28 }, 'moon'],
+    ['lander', { type: 'hover', site: 'tranquillitatis', altitude: 500 }, null],
+    ['spaceplane', { type: 'approach', site: 'grottaglie', altitude: 9000, north: 30000, east: -4000, heading: 172, pitch: -6, vel: [10, -205, -12] }, null],
+    ['rocket', { type: 'surface', site: 'malindi' }, null],
+    ['ntr', { type: 'orbit', body: 'mars', altitude: 500e3, inclination: 3 }, 'phobos'],
+  ];
+  for (const [ship, start, target] of flights) {
+    await page.evaluate(async ([s, st, tg]) => { await window.__cieli.startFlight({ ship: s, start: st, target: tg, date: '2033-11-01T00:00:00Z' }, null); }, [ship, start, target]);
     await ready('flight');
-    await page.screenshot({ path: path.join(output, `${aircraft}-cockpit.png`) });
-    await page.keyboard.press('KeyS');
-    await page.waitForFunction(() => window.__cieli.renderer.getStats().triangles > 0);
-    check(`Velivolo ${aircraft}: simulazione e vista esterna`, await page.evaluate((id) => window.__cieli.flightSim.def.id === id && window.__cieli.view === 'chase' && Number.isFinite(window.__cieli.flightSim.fm.altFt), aircraft));
-    await page.screenshot({ path: path.join(output, `${aircraft}.png`) });
+    await page.waitForTimeout(400);
+    check(`Veicolo ${ship}: simulazione e vista`, await page.evaluate((id) => {
+      const app = window.__cieli;
+      return app.flightSim.def.id === id && Number.isFinite(app.flightSim.info.altitude) && !app.flightSim.crashed && app.renderer.getStats().triangles > 0;
+    }, ship));
+    await page.screenshot({ path: path.join(output, `${ship}.png`) });
   }
+  await page.keyboard.press('F9');
+  check('Vista cockpit', await sim(() => window.__cieli.view === 'cockpit'));
+  await page.screenshot({ path: path.join(output, 'ntr-cockpit.png') });
+
+  // Missions.
   await page.evaluate(() => window.__cieli.showMainMenu());
   await page.getByRole('button', { name: /Missioni/ }).click();
   const catalogue = await page.evaluate(async () => {
-    const [{ MISSIONS }, { getAircraft }] = await Promise.all([import(new URL('src/missions/missions.js', document.baseURI).href), import(new URL('src/sim/aircraft/index.js', document.baseURI).href)]);
-    return { all: MISSIONS.length, military: MISSIONS.filter((m) => getAircraft(m.aircraft).role === 'military').length };
+    const { MISSIONS } = await import(new URL('src/missions/missions.js', document.baseURI).href);
+    return { all: MISSIONS.length, moon: MISSIONS.filter((m) => m.category === 'luna').length };
   });
-  check(`Catalogo di ${catalogue.all} missioni`, catalogue.all >= 40 && await page.locator('.mission-card').count() === catalogue.all);
-  await page.locator('.mission-filters').getByRole('button', { name: 'Militari' }).click();
-  check(`Filtro missioni militari (${catalogue.military})`, await page.locator('.mission-card').count() === catalogue.military);
-  await page.locator('.mission-filters').getByRole('button', { name: 'Tutte' }).click();
+  check(`Catalogo di ${catalogue.all} missioni`, catalogue.all >= 15 && await page.locator('.mission-card').count() === catalogue.all);
+  await page.locator('.missions').getByRole('button', { name: 'Luna', exact: true }).click();
+  check(`Filtro missioni lunari (${catalogue.moon})`, await page.locator('.mission-card').count() === catalogue.moon);
+  await page.locator('.missions').getByRole('button', { name: 'Tutte', exact: true }).click();
   await page.getByRole('button', { name: /Inizia la missione/ }).click();
   await ready('flight');
-  check('Missione attiva con obiettivi', await page.evaluate(() => window.__cieli.runner?.status === 'running' && window.__cieli.runner.objectives.length > 0));
+  check('Missione attiva con obiettivi', await sim(() => window.__cieli.runner?.status === 'running' && window.__cieli.runner.objectives.length > 0));
   await page.keyboard.press('F12');
-  const missionTime = await page.evaluate(() => window.__cieli.runner.elapsed);
+  const missionTime = await sim(() => window.__cieli.runner.elapsed);
   await page.waitForTimeout(300);
-  check('Aiuto: il timer della missione resta fermo', await page.evaluate(() => window.__cieli.runner.elapsed) === missionTime);
+  check('Aiuto: il timer della missione resta fermo', await sim(() => window.__cieli.runner.elapsed) === missionTime);
   await page.keyboard.press('Escape');
   await page.screenshot({ path: path.join(output, 'mission.png') });
   await page.evaluate(() => {
@@ -156,9 +149,8 @@ try {
     app._dispatchEvents();
   });
   await page.evaluate(async () => { await window.__cieli.restartFlight(); });
-  // restartFlight starts an asynchronous transition; wait until that transition finishes.
   await ready('flight');
-  check('Riavvio: timer e overlay del volo precedente eliminati', await page.evaluate(() => !window.__cieli._crashTimer && !window.__cieli._debriefTimer && !window.__cieli.map.visible && !window.__cieli.checklist.visible && !window.__cieli.overlay));
+  check('Riavvio: timer e overlay del volo precedente eliminati', await sim(() => !window.__cieli._crashTimer && !window.__cieli._debriefTimer && !window.__cieli.overlay && window.__cieli.runner?.status === 'running'));
   await fatal();
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ success: true, checks, errors }, null, 2));
   console.log(`Smoke completato: ${checks.length} verifiche. Screenshot in .smoke/`);

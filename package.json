@@ -1,8 +1,8 @@
 {
-  "name": "cieli-aperti",
-  "productName": "Cieli Aperti Flight Simulator",
-  "version": "1.0.0",
-  "description": "Simulatore di volo realistico per Windows: fisica 6DOF, cockpit completo, sistemi, autopilota, meteo e missioni.",
+  "name": "cieli-aperti-space",
+  "productName": "Cieli Aperti Space Edition",
+  "version": "2.0.0",
+  "description": "Simulatore di volo spaziale con fisica reale nel Sistema Solare in scala: orbite, attracco, lancio, rientro, Luna e Marte.",
   "main": "electron/main.cjs",
   "type": "module",
   "author": "Cieli Aperti",
@@ -27,8 +27,8 @@
     "playwright-core": "1.63.0"
   },
   "build": {
-    "appId": "com.cieliaperti.flightsim",
-    "productName": "Cieli Aperti Flight Simulator",
+    "appId": "com.cieliaperti.space",
+    "productName": "Cieli Aperti Space Edition",
     "directories": {
       "output": "release"
     },
@@ -64,10 +64,10 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Cieli Aperti Flight Simulator"
+      "shortcutName": "Cieli Aperti Space Edition"
     },
     "portable": {
-      "artifactName": "CieliAperti-Portable-${version}.exe"
+      "artifactName": "CieliAperti-Space-Portable-${version}.exe"
     }
   }
 }

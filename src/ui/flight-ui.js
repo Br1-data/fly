@@ -29,11 +29,11 @@ export class FlightUI {
     this.warpEl = h('span.fu-warp');
     this.titleEl = h('span.fu-title');
     this.top = h('div.fu-top',
-      h('button.fu-btn', { type: 'button', onclick: () => app.openPauseMenu(), 'aria-label': 'Menu e pausa (Esc)' }, '☰'),
+      h('button.fu-btn.fu-menu', { type: 'button', onclick: () => app.openPauseMenu(), 'aria-label': 'Menu e pausa (Esc)' }, '☰'),
       this.titleEl, h('div.spacer'), this.warpEl, this.timeEl,
-      h('button.fu-btn', { type: 'button', onclick: () => app.onAction('nav'), 'aria-label': 'Computer di navigazione (O)' }, 'NAV'),
-      h('button.fu-btn', { type: 'button', onclick: () => app.onAction('map'), 'aria-label': 'Mappa orbitale (M)' }, 'MAPPA'),
-      h('button.fu-btn', { type: 'button', onclick: () => app.onAction('view-next'), 'aria-label': 'Cambia vista (C)' }, 'VISTA'),
+      h('button.fu-btn.fu-opt.fu-optnav', { type: 'button', onclick: () => app.onAction('nav'), 'aria-label': 'Computer di navigazione (O)' }, 'NAV'),
+      h('button.fu-btn.fu-opt.fu-optmap', { type: 'button', onclick: () => app.onAction('map'), 'aria-label': 'Mappa orbitale (M)' }, 'MAPPA'),
+      h('button.fu-btn.fu-opt', { type: 'button', onclick: () => app.onAction('view-next'), 'aria-label': 'Cambia vista (C)' }, 'VISTA'),
       h('button.fu-btn.fu-help', { type: 'button', onclick: () => app.openHelp(), 'aria-label': 'Aiuto e glossario (F12)' }, '?'));
     // Left: orbit / surface
     this.orbitBox = h('div.fu-box.fu-orbit');
@@ -80,6 +80,8 @@ export class FlightUI {
   }
 
   reset() {
+    // No HUD symbols from the previous flight until the first frame of the new one.
+    this.hctx?.clearRect(0, 0, this.hudCanvas.width, this.hudCanvas.height);
     clear(this.toasts);
     this.flashEl.classList.remove('show');
     this.navOpen = false;

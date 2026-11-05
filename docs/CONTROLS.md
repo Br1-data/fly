@@ -1,94 +1,120 @@
 # Comandi di volo
 
 Il menu **Comandi** del simulatore contiene l’elenco completo delle associazioni correnti e la
-configurazione di joystick e gamepad. I comandi si attivano durante il volo; i campi di testo e i menu
-mantengono il normale comportamento della tastiera.
+configurazione di joystick e gamepad; la stessa lista è nell’**Aiuto (F12)**, con la ricerca. I comandi
+si attivano durante il volo; i campi di testo e i menu mantengono il normale comportamento della tastiera.
+
+## Assetto e traslazione
 
 | Funzione | Comando |
 |---|---|
-| Cabrare / picchiare | Freccia giù / su oppure Num 2 / 8 |
-| Rollio sinistra / destra | Frecce sinistra / destra oppure Num 4 / 6 |
-| Pedale sinistro / destro | Q / E oppure Num 0 / Invio |
-| Trim a cabrare / picchiare | Home / End oppure Num 7 / 1 |
-| Manetta minima / massima | F1 / F4 |
-| Riduci / aumenta manetta | Tieni premuto F2 / F3 |
-| Freni ruote | Punto oppure Spazio |
-| Freni differenziali sinistro / destro | Virgola / X |
-| Freno di parcheggio | Ctrl + Punto |
-| Inversori di spinta | Tieni premuto Shift + F2 |
-| Flap su / riduci / estendi / completi | F5 / F6 / F7 / F8 |
-| Carrello | G |
-| Aerofreni / arma spoiler | / oppure Shift + / |
-| Avviamento automatico / spegnimento | Ctrl + E / Ctrl + Shift + E |
-| Miscela magra / ricca | Ctrl + Shift + F1 / F4 |
-| Autopilota | Z |
-| Modi HDG / ALT / NAV / APR | Ctrl + H / Z / N / A |
-| Modi V/S / FLC / autothrottle | Ctrl + V / F / T |
-| Sorgente NAV1 / GPS | Ctrl + S |
-| QNH locale / pressione standard | B / Shift + B |
-| Allinea giroscopio | D |
-| Luci | L |
-| Fumogeni del Freccia | Ctrl + Shift + S |
-| Pausa / menu di pausa | P / Esc |
+| Beccheggio: muso giù / su | W / S oppure ↑ / ↓ |
+| Imbardata sinistra / destra (rollio per Albatro e Grillo) | A / D oppure ← / → |
+| Rollio sinistra / destra (imbardata per Albatro e Grillo) | Q / E |
+| Traslazione RCS su / giù | I / K |
+| Traslazione RCS sinistra / destra | J / L |
+| Traslazione RCS avanti / indietro | H / N |
+| Annulla la velocità relativa | tieni premuto F |
+
+I comandi sono nel sistema del pilota: nel Grillo LM-3 si guarda dal finestrino anteriore, quindi
+“avanti” è la direzione di sguardo e “su” è l’asse del motore. L’Albatro si pilota come un aereo.
+
+## Propulsione e veicolo
+
+| Funzione | Comando |
+|---|---|
+| Manetta al massimo / spenta | Z / X (anche F4 / F1) |
+| Aumenta / riduci la manetta | tieni premuto = / − (anche F3 / F2) |
+| Azione: separa lo stadio · apri il paracadute · sgancia | Spazio |
+| RCS acceso / spento | R |
+| Assistenza al volo (Colibrì) | Y |
+| Controllo della velocità verticale (atterraggio) | V |
+| Autopilota di ascesa (Aquila V) | Maiusc + A |
+| Esegui la manovra con l’autopilota | Invio |
+| Gambe / carrello | G |
+| Freni delle ruote (Albatro) | B |
+| Luci | Maiusc + L |
+
+## SAS
+
+| Funzione | Comando |
+|---|---|
+| SAS acceso / spento | T |
+| Stabilizza · prograde · retrograde | 1 · 2 · 3 |
+| Normale · antinormale | 4 · 5 |
+| Radiale esterno · interno | 6 · 7 |
+| Verso il bersaglio · opposto | 8 · 9 |
+| Vettore di manovra | 0 |
+| Allinea alla porta di attracco | Maiusc + 8 |
+| Verticale locale | Maiusc + 6 |
+
+## Navigazione e tempo
+
+| Funzione | Comando |
+|---|---|
+| Bersaglio successivo / precedente (stazioni, Luna, pianeti) | Tab / Maiusc + Tab |
+| Porta di attracco successiva | Maiusc + T |
+| Computer di navigazione (nodi di manovra) | O |
+| Mappa orbitale | M |
+| Accelera / rallenta il tempo | . / , |
+| Tempo reale | / |
+
+Il tempo accelera fino a ×4 con la fisica completa e fino a ×1.000.000 sui binari kepleriani (motore
+spento, fuori dall’atmosfera). Con **Interrompi il warp prima delle manovre** (Impostazioni → Realismo)
+il tempo torna reale prima di un nodo, di un incontro o dell’ingresso in atmosfera.
+
+## Interfaccia
+
+| Funzione | Comando |
+|---|---|
+| Pausa · menu di pausa | P · Esc |
+| Vista successiva / precedente (cockpit, esterna, orbitale, bersaglio) | C / Maiusc + C |
+| Cockpit · esterna | F9 · F10 |
+| Strumenti completi / essenziali / nascosti · simboli HUD | U · Maiusc + U |
+| Ripristina la vista | Backspace |
+| Riavvia | Ctrl + ; |
 | Aiuto, comandi e glossario | F12 |
-| Vista successiva / precedente | S / Shift + S |
-| Cockpit / vista esterna | F9 / F10 |
-| Pannello completo / compatto / nascosto | W |
-| Informazioni / HUD del jet | H |
-| Mappa / checklist | M / K |
-| Velocità simulazione | R: ×1, ×2, ×4, ×8 |
-| Riavvia volo | Ctrl + ; |
-| Ripristina vista | Backspace |
 
-## Mouse e cockpit
+## Mouse
 
-Trascina con il tasto destro sulla scena per guardarti intorno; usa la rotella per lo zoom.
-**Y** attiva o disattiva la cloche col mouse: sposta il puntatore a destra/sinistra per il rollio,
-verso il basso/alto per cabrare/picchiare. La tastiera rimane disponibile.
-
-Nel cockpit puoi azionare interruttori e leve con il mouse. I pulsanti **− / +** e la rotella
-regolano le manopole di prua, quota, velocità verticale, frequenza NAV e QNH. **NAV ⇄** scambia
-la frequenza attiva e quella in attesa. Il pulsante **AVVIA** esegue l’avviamento automatico.
+Trascina sulla scena per guardarti intorno (nel cockpit muovi la testa); la rotella regola lo zoom.
+Sulla mappa trascina per ruotare e usa la rotella per avvicinarti. I pulsanti della sfera di assetto
+selezionano i modi SAS; quelli in alto aprono navigazione, mappa, vista e aiuto.
 
 ## Joystick e gamepad
 
-Collega il dispositivo, premi un pulsante e apri **Comandi → Joystick e gamepad**. I gamepad standard
-usano gli stick per rollio/beccheggio e pedaliera; i dorsali regolano la manetta. Puoi assegnare
-ogni asse, invertirne il verso e regolare zona morta e curva di risposta. Premi **Assegna**, poi muovi
-l’asse desiderato entro otto secondi. Le assegnazioni vengono salvate nel browser.
+Collega il dispositivo, premi un pulsante e apri **Comandi → Joystick e gamepad**. Con un gamepad
+standard:
 
-Quando il volo perde il focus o viene aperto un menu, i comandi momentanei vengono rilasciati.
-La manetta resta nella posizione selezionata.
+| Funzione | Gamepad |
+|---|---|
+| Beccheggio / imbardata | stick sinistro |
+| Traslazione laterale e verticale | stick destro |
+| Traslazione avanti / indietro | RT / LT |
+| Rollio | LB / RB |
+| Manetta | croce su / giù |
+| Tempo più lento / più veloce | croce sinistra / destra |
+| Azione · SAS · RCS · vista | A · B · X · Y |
+| Mappa · menu | Back · Start |
+| Annulla la velocità relativa · bersaglio | L3 · R3 |
 
-## Console laterali e manuale di bordo
-
-Nella vista cockpit usa **Impianti** per la console sinistra e **Radio** per quella destra.
-Ogni sezione si può scorrere e richiudere. Anche su schermi piccoli tutti i comandi rimangono
-raggiungibili: i pulsanti alternano le console senza cambiare vista di volo.
-
-Le console comprendono luci singole, protezioni contro il ghiaccio, avviamento, trim, cloche,
-pedaliera e freni; per il liner sono disponibili anche due manette indipendenti. Tieni premuti
-i comandi momentanei e rilasciali per tornare al centro. I controlli fisici di tastiera e gamepad
-hanno la precedenza sui comandi della console. Le manette conservano la posizione quando apri un menu.
-
-**Aiuto / F12** contiene la lista aggiornata di tastiera, mouse, gamepad e comandi cockpit,
-oltre a una guida pratica e al glossario. La ricerca funziona anche sulle spiegazioni. Durante
-la lettura il volo è in pausa; alla chiusura viene ripristinato lo stato precedente.
+Ogni asse (rotazioni, traslazioni e manetta) si può assegnare a un joystick, invertire e regolare con
+zona morta e curva di risposta: premi **Assegna** e muovi l’asse entro otto secondi. Le assegnazioni
+sono salvate nel browser. Quando il volo perde il focus o si apre un menu, i comandi momentanei vengono
+rilasciati; la manetta resta nella posizione scelta.
 
 ## Smartphone e tablet
 
-I comandi touch compaiono durante il volo sui dispositivi con puntatore tattile:
+Durante il volo, sui dispositivi touch:
 
-- **Cloche**: trascina il cerchio a sinistra; in basso cabri, in alto picchi. Rilascia per centrare.
-- **Potenza**: trascina la manetta verticale a destra. Il valore rimane dopo il rilascio.
-- **Pedali e freni**: tieni premuti i pulsanti. Puoi usare più dita insieme alla cloche e alla manetta.
-- **FLAP**: passa alla posizione successiva; dopo il massimo torna a zero.
-- **CARRELLO**: compare sui velivoli con carrello retrattile.
-- **VISTA / PANNELLO**: cambia visuale o dimensione degli strumenti. In orizzontale sugli schermi
-  bassi il pannello si nasconde e si richiama dal pulsante touch, lasciando spazio ai comandi.
-- **Panorama**: trascina la scena con un dito per guardarti intorno.
-- **Mappa**: trascina per spostarti, allarga o avvicina due dita per ingrandire o ridurre.
+- **Leva sinistra (ROTAZIONE)**: trascina in basso per alzare il muso, in alto per abbassarlo, ai lati
+  per virare; i pulsanti ⟲ ⟳ comandano il rollio. Il centro è dove appoggi il dito; al rilascio torna a zero.
+- **Leva destra (RCS)**: traslazione su, giù, sinistra e destra; **AVANTI / INDIETRO** lungo l’asse.
+- **Manetta**: cursore verticale; il valore resta dopo il rilascio.
+- **Pulsanti rapidi**: SAS, RCS, STOP (tieni premuto per annullare la velocità relativa), AZIONE,
+  VISTA, MAPPA, NAV, ⏪ ⏩ per il tempo.
+- **Panorama**: trascina la scena con un dito.
 
-Aiuto, mappa, checklist e pausa rimangono nella barra in alto. Aprendo un menu o una console,
-i comandi touch momentanei vengono rilasciati. Il ritorno al browser da un’altra applicazione
-mostra il menu di pausa: tocca Riprendi quando vuoi continuare.
+Più dita lavorano insieme (rotazione, traslazione e manetta). La sensibilità delle leve (Precisa,
+Normale, Diretta) si sceglie in **Comandi**. Il ritorno all’app da un’altra applicazione apre il menu
+di pausa.

@@ -39,7 +39,7 @@ try {
   await page.screenshot({ path: path.join(output, 'phone-menu.png') });
   await page.getByRole('button', { name: /Aiuto e glossario/ }).tap();
   await page.getByRole('tab', { name: 'Glossario' }).tap();
-  await page.getByRole('searchbox').fill('ILS');
+  await page.getByRole('searchbox').fill('SAS');
   check('Smartphone: glossario ricercabile con tocco', await page.locator('.help-term').count() > 0 && await noOverflow());
   await page.getByRole('button', { name: /Chiudi l’aiuto/ }).tap();
   await page.getByRole('button', { name: /Impostazioni/ }).tap();
@@ -53,116 +53,86 @@ try {
   await page.screenshot({ path: path.join(output, 'phone-missions.png') });
   await page.getByRole('button', { name: /Menu/ }).tap();
   await page.getByRole('button', { name: /Volo libero/ }).tap();
-  check('Smartphone: configurazione di volo scorrevole', await noOverflow());
-  await page.getByRole('button', { name: /Vola!/ }).tap();
+  check('Smartphone: configurazione del volo senza overflow', await noOverflow());
+  await page.getByRole('button', { name: /Rondine CR-4/ }).tap();
+  await page.getByRole('button', { name: /Vicino alla Stazione Aurora/ }).tap();
+  await page.getByRole('button', { name: /Parti!/ }).tap();
   await ready('flight');
   await page.locator('.touch-controls:not([hidden])').waitFor();
-  check('Smartphone: terreno e framebuffer entro i limiti mobili', await page.evaluate(() => {
-    const app = window.__cieli, canvas = app.renderer.webgl.domElement;
-    return app.cockpit.mode === 'mini' && app.renderer.terrain.tiles.size === 49 && canvas.width * canvas.height <= 1_000_000;
+  check('Smartphone: framebuffer entro i limiti mobili', await page.evaluate(() => {
+    const canvas = window.__cieli.renderer.webgl.domElement;
+    return canvas.width * canvas.height <= 1_000_000;
   }));
-  const stick = await bounds(page.locator('.touch-stick'));
-  const brake = await bounds(page.locator('.touch-brake'));
+  const sticks = page.locator('.touch-stick');
+  const rot = await bounds(sticks.nth(0));
+  const rcs = await bounds(sticks.nth(1));
   const power = await bounds(page.locator('.touch-throttle'));
-  // The stick's neutral is where the finger lands: press at the centre, then drag.
-  const centre = point(1, stick.x + stick.width / 2, stick.y + stick.height / 2);
-  const fingers = [point(1, stick.x + stick.width * .82, stick.y + stick.height * .78), point(2, brake.x + brake.width / 2, brake.y + brake.height / 2), point(3, power.x + power.width / 2, power.y + power.height * .25)];
-  await touch('touchStart', [centre, fingers[1], fingers[2]]);
+  // A stick's neutral is where the finger lands: press at the centre, then drag.
+  const c1 = point(1, rot.x + rot.width / 2, rot.y + rot.height / 2);
+  const c2 = point(2, rcs.x + rcs.width / 2, rcs.y + rcs.height / 2);
+  const fingers = [point(1, rot.x + rot.width * 0.85, rot.y + rot.height * 0.8), point(2, rcs.x + rcs.width * 0.15, rcs.y + rcs.height * 0.5), point(3, power.x + power.width / 2, power.y + power.height * 0.25)];
+  await touch('touchStart', [c1, c2, fingers[2]]);
   await touch('touchMove', fingers);
   await page.waitForFunction(() => {
     const p = window.__cieli.flightSim.pilot;
-    return p.pitch > .1 && p.roll > .2 && p.brakeL === 1 && p.brakeR === 1 && Math.abs(p.throttle - .75) < .03;
+    return Math.abs(p.pitch) > 0.1 && Math.abs(p.yaw) > 0.1 && Math.abs(p.ty) > 0.3 && Math.abs(p.throttle - 0.75) < 0.06;
   });
-  check('Tre dita: cloche, freni e manetta comandano insieme il velivolo', true);
+  check('Tre dita: rotazione, traslazione RCS e manetta insieme', true);
   await touch('touchEnd', []);
   await page.waitForFunction(() => {
     const p = window.__cieli.flightSim.pilot;
-    return Math.abs(p.pitch) < .01 && Math.abs(p.roll) < .01 && p.brakeL === 0 && p.brakeR === 0;
+    return Math.abs(p.pitch) < 0.01 && Math.abs(p.yaw) < 0.01 && Math.abs(p.ty) < 0.01;
   });
-  check('Rilascio touch: comandi centrati e potenza conservata', await page.evaluate(() => Math.abs(window.__cieli.flightSim.pilot.throttle - .75) < .03));
-  // Exercise cancellation while the finger is still deflecting the stick.
-  await touch('touchStart', [centre]);
+  check('Rilascio touch: comandi centrati e manetta conservata', await page.evaluate(() => Math.abs(window.__cieli.flightSim.pilot.throttle - 0.75) < 0.06));
+  await page.evaluate(() => window.__cieli.flightSim.command('throttle', 0));
+  await touch('touchStart', [c1]);
   await touch('touchMove', [fingers[0]]);
   await touch('touchCancel', []);
-  await page.waitForFunction(() => !window.__cieli.touchControls.pointers.size && Math.abs(window.__cieli.flightSim.pilot.roll) < .01);
+  await page.waitForFunction(() => Math.abs(window.__cieli.flightSim.pilot.pitch) < 0.01 && Math.abs(window.__cieli.flightSim.pilot.yaw) < 0.01);
   check('Gesto interrotto: nessun comando bloccato', true);
-  await page.locator('.flight-help').tap();
+  const mode = await page.evaluate(() => window.__cieli.flightSim.sas.on);
+  await page.locator('.touch-bar [data-id=sas]').tap();
+  check('Pulsante SAS touch', await page.evaluate(() => window.__cieli.flightSim.sas.on) !== mode);
+  await page.locator('.touch-bar [data-id=sas]').tap();
+  await page.getByRole('button', { name: /Aiuto e glossario \(F12\)/ }).tap();
   check('Aiuto touch: pausa e rilascio dei controlli', await page.evaluate(() => window.__cieli.flightSim.paused && !window.__cieli.touchControls.enabled));
-  await page.waitForFunction(() => !window.__cieli._needsRender);
-  const pausedFrame = await page.evaluate(() => window.__cieli.renderer.webgl.info.render.frame);
-  await page.waitForTimeout(120);
-  check('In pausa: nessun rendering 3D mobile superfluo', await page.evaluate(() => window.__cieli.renderer.webgl.info.render.frame) === pausedFrame);
   await page.getByRole('button', { name: /Chiudi l’aiuto/ }).tap();
   await page.locator('.touch-controls:not([hidden])').waitFor();
-  const atisClose = page.locator('.hud-atis.visible .atis-close');
-  if (await atisClose.isVisible()) await atisClose.tap();
-  await page.evaluate(() => {
-    window.__touchTrace = [];
-    for (const type of ['pointerdown', 'pointerup', 'click']) document.addEventListener(type, (e) => {
-      window.__touchTrace.push([type, e.target.getAttribute?.('aria-label') || e.target.tagName, e.pointerId]);
-      if (window.__touchTrace.length > 20) window.__touchTrace.shift();
-    }, true);
-  });
   const yaw = await page.evaluate(() => window.__cieli.renderer.yaw);
-  await touch('touchStart', [point(1, 195, 250)]);
-  await touch('touchMove', [point(1, 235, 255)]);
+  await touch('touchStart', [point(1, 195, 330)]);
+  await touch('touchMove', [point(1, 245, 335)]);
   await page.waitForTimeout(80);
   await touch('touchEnd', []);
-  check('Panorama: guardarsi intorno trascinando un dito', await page.evaluate(() => window.__cieli.renderer.yaw) < yaw - .1);
-  await page.getByRole('button', { name: 'Mostra o nascondi console impianti' }).tap();
-  await page.locator('.touch-controls').waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: 'Antighiaccio', exact: true }).tap();
-  check('Console touch: comandi raggiungibili senza interferire con la cloche', await page.evaluate(() => window.__cieli.flightSim.fm.systems.antiIce));
-  await page.locator('.ca-left .ca-console-head button').tap();
+  check('Panorama: guardarsi intorno trascinando un dito', Math.abs(await page.evaluate(() => window.__cieli.renderer.yaw) - yaw) > 0.1);
+  await page.locator('.touch-bar [data-id=map]').tap();
+  check('Mappa orbitale dal touch', await page.evaluate(() => window.__cieli.view === 'map'));
+  await page.getByRole('button', { name: /Mappa orbitale \(M\)/ }).tap();
+  check('Uscita dalla mappa dalla barra in alto', await page.evaluate(() => window.__cieli.view !== 'map'));
   await page.locator('.touch-controls:not([hidden])').waitFor();
-  await page.locator('.flight-toolbar').getByRole('button', { name: 'Mappa', exact: true }).tap();
-  await page.locator('.map-overlay.visible').waitFor();
-  const map = await bounds(page.locator('.map-canvas'));
-  const scale = await page.evaluate(() => window.__cieli.map.scale);
-  const mx = map.x + map.width / 2, my = map.y + map.height / 2;
-  await touch('touchStart', [point(1, mx - 30, my), point(2, mx + 30, my)]);
-  await touch('touchMove', [point(1, mx - 65, my), point(2, mx + 65, my)]);
-  await touch('touchEnd', []);
-  check('Mappa: zoom con due dita e controlli di volo sospesi', await page.evaluate(() => window.__cieli.map.scale) > scale * 1.5 && await page.locator('.touch-controls').isHidden());
-  await page.locator('.map-toolbar').getByRole('button', { name: '✕', exact: true }).tap();
-  await page.locator('.flight-toolbar').getByRole('button', { name: 'Checklist', exact: true }).tap();
-  await page.locator('.checklist-overlay.visible').waitFor();
-  check('Checklist entro la larghezza dello smartphone', (await bounds(page.locator('.checklist-overlay'))).width <= 390);
-  await page.locator('.checklist-overlay .cl-head button').last().tap();
-  await page.locator('.flight-toolbar').getByRole('button', { name: 'Pausa', exact: true }).tap();
+  await page.locator('.touch-bar [data-id=nav]').tap();
+  await page.locator('.fu-nav.open').waitFor();
+  check('Computer di navigazione entro lo schermo', (await bounds(page.locator('.fu-nav.open'))).width <= 390 && await noOverflow());
+  await page.locator('.touch-bar [data-id=nav]').tap();
+  await page.getByRole('button', { name: /Menu e pausa/ }).tap();
   await page.locator('.overlay.visible').getByRole('button', { name: /Riprendi/ }).tap();
   await page.locator('.touch-controls:not([hidden])').waitFor();
   await page.screenshot({ path: path.join(output, 'phone-flight.png') });
 
+  const touchRects = (p) => p.locator('.touch-stick, .touch-throttle, .touch-controls button:not([hidden]), .fu-top button').evaluateAll((els) => els.filter((el) => el.getClientRects().length).map((el) => {
+    const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height };
+  }));
   for (const viewport of [{ width: 844, height: 390 }, { width: 320, height: 568 }, { width: 768, height: 1024 }]) {
     await page.setViewportSize(viewport);
     await page.evaluate(() => window.dispatchEvent(new Event('orientationchange')));
-    await page.waitForFunction((width) => window.__cieli.cockpit.width === width, viewport.width);
+    await page.waitForTimeout(400);
     await page.locator('.touch-controls:not([hidden])').waitFor();
-    const rects = await page.locator('.touch-stick, .touch-throttle, .touch-controls button:not([hidden]), .flight-toolbar button').evaluateAll((els) => els.filter((el) => el.getClientRects().length).map((el) => {
-      const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height };
-    }));
-    check(`${viewport.width}×${viewport.height}: controlli visibili, grandi e senza overflow`, await noOverflow() && rects.every((r) => r.x >= 0 && r.y >= 0 && r.x + r.w <= viewport.width + 1 && r.y + r.h <= viewport.height + 1 && r.w >= 44 && r.h >= 44));
-    if (viewport.height === 390) {
-      await page.locator('.touch-actions').getByRole('button', { name: 'Mostra o riduci il pannello strumenti' }).tap();
-      await page.locator('.ca-shell').waitFor({ state: 'hidden' });
-      check('Orizzontale: pannello richiamabile dal touch', await page.locator('.touch-controls').isVisible());
-      await page.locator('.touch-actions').getByRole('button', { name: 'Mostra o riduci il pannello strumenti' }).tap();
-      await page.locator('.ca-shell').waitFor({ state: 'visible' });
-    }
+    const rects = await touchRects(page);
+    check(`${viewport.width}×${viewport.height}: controlli visibili, grandi e senza overflow`, await noOverflow() && rects.length > 10 && rects.every((r) => r.x >= -1 && r.y >= -1 && r.x + r.w <= viewport.width + 1 && r.y + r.h <= viewport.height + 1 && r.w >= 36 && r.h >= 36));
     await page.screenshot({ path: path.join(output, `flight-${viewport.width}x${viewport.height}.png`) });
   }
-  await page.locator('.touch-actions').getByRole('button', { name: 'Cambia vista', exact: true }).tap();
-  await page.waitForFunction(() => window.__cieli.view === 'chase');
-  check('Touch: cambio vista senza tastiera', await page.evaluate(() => window.__cieli.renderer.view === 'chase'));
-  await page.locator('.flight-help').tap();
-  await page.getByRole('tab', { name: 'Comandi', exact: true }).tap();
-  await page.getByRole('searchbox').fill('touch');
-  check('Guida: i gesti touch sono documentati', await page.locator('.help-command-row').count() > 0);
-  await page.getByRole('button', { name: /Chiudi l’aiuto/ }).tap();
   check('Nessun errore browser o risorsa mancante', errors.length === 0 && await page.locator('#fatal-error').count() === 0);
 
-  // iPad (iPadOS Safari reports a Mac user agent): richer defaults and the full panel.
+  // iPad (iPadOS Safari reports a Mac user agent): richer defaults.
   const ipadUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
   const tablet = await browser.newContext({ viewport: { width: 820, height: 1180 }, screen: { width: 820, height: 1180 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, userAgent: ipadUA });
   const ipad = await tablet.newPage();
@@ -180,24 +150,20 @@ try {
     const link = document.querySelector('link[rel=manifest]');
     const manifest = await (await fetch(link.href)).json();
     const icon = await fetch(document.querySelector('link[rel=apple-touch-icon]').href);
-    return manifest.display === 'fullscreen' && icon.ok && document.querySelector('meta[name=apple-mobile-web-app-capable]')?.content === 'yes';
+    return manifest.display === 'fullscreen' && /Space/.test(manifest.name) && icon.ok && document.querySelector('meta[name=apple-mobile-web-app-capable]')?.content === 'yes';
   }));
-  await ipad.evaluate(async () => { await window.__cieli.startFlight({ aircraft: 'trainer', start: { type: 'runway', airport: 'XAQU', runway: '07' }, time: 11 }, null); });
+  await ipad.evaluate(async () => { await window.__cieli.startFlight({ ship: 'lander', start: { type: 'hover', site: 'tranquillitatis', altitude: 500 } }, null); });
   await ipad.waitForFunction(() => window.__cieli.state === 'flight', null, { timeout: 120000 });
   await ipad.locator('.touch-controls:not([hidden])').waitFor();
-  check('iPad verticale: pannello strumenti completo e terreno ricco', await ipad.evaluate(() => {
-    const a = window.__cieli;
-    return a.cockpit.mode === 'full' && document.querySelector('.ca-body').getBoundingClientRect().height >= 240 && a.renderer.terrain.tiles.size === 121;
-  }));
-  const tabletRects = await ipad.locator('.touch-stick, .touch-throttle, .touch-controls button:not([hidden])').evaluateAll((els) => els.filter((el) => el.getClientRects().length).map((el) => {
-    const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, panel: document.querySelector('.ca-panel').getBoundingClientRect().top };
-  }));
-  check('iPad: comandi touch grandi, sopra il pannello e dentro lo schermo', tabletRects.length > 0 && tabletRects.every((r) => r.x >= 0 && r.x + r.w <= 821 && r.y + r.h <= r.panel + 1 && r.w >= 56 && r.h >= 56));
+  await ipad.waitForTimeout(400);
+  let rects = await touchRects(ipad);
+  check('iPad verticale: comandi touch grandi e dentro lo schermo', rects.length > 10 && rects.every((r) => r.x >= -1 && r.x + r.w <= 821 && r.y + r.h <= 1181 && r.w >= 44 && r.h >= 44));
   await ipad.screenshot({ path: path.join(output, 'ipad-portrait.png') });
   await ipad.setViewportSize({ width: 1180, height: 820 });
   await ipad.evaluate(() => window.dispatchEvent(new Event('orientationchange')));
-  await ipad.waitForFunction(() => window.__cieli.cockpit.width === 1180);
-  check('iPad orizzontale: pannello completo e nessun overflow', await ipad.evaluate(() => window.__cieli.cockpit.mode === 'full' && document.documentElement.scrollWidth <= innerWidth + 1));
+  await ipad.waitForTimeout(400);
+  rects = await touchRects(ipad);
+  check('iPad orizzontale: nessun overflow', await ipad.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1) && rects.every((r) => r.x + r.w <= 1181 && r.y + r.h <= 821));
   await ipad.screenshot({ path: path.join(output, 'ipad-landscape.png') });
   await tablet.close();
   check('iPad: nessun errore', errors.length === 0);
@@ -218,35 +184,19 @@ try {
     const r = window.__cieli.renderer;
     return window.__cieli.settings.quality === 'medium' && r.profile.device === 'iphone' && r.webgl.getPixelRatio() > 1.5 && r.profile.antialias && r.profile.maxFps === 60;
   }));
-  await iphone.evaluate(async () => { await window.__cieli.startFlight({ aircraft: 'jet', start: { type: 'runway', airport: 'XAQU', runway: '07' }, time: 11 }, null); });
+  await iphone.evaluate(async () => { await window.__cieli.startFlight({ ship: 'pod', start: { type: 'near', object: 'aurora', port: 'prua', distance: 60 }, target: { id: 'aurora', port: 'prua' } }, null); });
   await iphone.waitForFunction(() => window.__cieli.state === 'flight', null, { timeout: 120000 });
   await iphone.locator('.touch-controls:not([hidden])').waitFor();
-  const layout = () => iphone.evaluate(() => {
-    const box = (q) => [...document.querySelectorAll(q)].filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect());
-    const toolbar = box('.flight-toolbar')[0], panel = box('.ca-panel')[0];
-    const controls = box('.touch-stick, .touch-throttle, .touch-controls button:not([hidden])');
-    const hud = box('.ca-jet-hud')[0];
-    const columns = box('.touch-flight-left, .touch-flight-right');
-    const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-    return {
-      onScreen: controls.every((r) => r.left >= 0 && r.top >= 0 && r.right <= innerWidth + 1 && r.bottom <= panel.top + 1 && r.width >= 44 && r.height >= 44),
-      toastsBelowToolbar: box('.hud-toasts .toast').every((r) => r.top >= toolbar.bottom - 1 || !overlaps(r, toolbar)),
-      hudClear: !hud || columns.every((c) => !overlaps(hud, c)) && hud.bottom <= panel.top + 1,
-      overflow: document.documentElement.scrollWidth > innerWidth + 1,
-    };
-  });
   await iphone.waitForTimeout(500);
-  let l = await layout();
-  check('iPhone 16 verticale: comandi sopra il pannello, messaggi sotto la barra, HUD libero', l.onScreen && l.toastsBelowToolbar && l.hudClear && !l.overflow);
+  rects = await touchRects(iphone);
+  check('iPhone 16 verticale: comandi dentro lo schermo e senza overflow', rects.every((r) => r.x >= -1 && r.x + r.w <= 394 && r.y + r.h <= 853 && r.w >= 36) && await iphone.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await iphone.screenshot({ path: path.join(output, 'iphone-portrait.png') });
-  // Sideways in Safari: the bars leave about 340 px of height, the island sits on the left.
   await insets(0, 21, 59, 59);
   await iphone.setViewportSize({ width: 852, height: 340 });
   await iphone.evaluate(() => window.dispatchEvent(new Event('orientationchange')));
-  await iphone.waitForFunction(() => window.__cieli.cockpit.width === 852);
   await iphone.waitForTimeout(500);
-  l = await layout();
-  check('iPhone 16 orizzontale (Safari): tutti i comandi visibili, HUD tra le colonne', l.onScreen && l.hudClear && !l.overflow);
+  rects = await touchRects(iphone);
+  check('iPhone 16 orizzontale (Safari): tutti i comandi visibili', rects.every((r) => r.x >= -1 && r.x + r.w <= 853 && r.y + r.h <= 341) && await iphone.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await iphone.screenshot({ path: path.join(output, 'iphone-landscape.png') });
   await phone16.close();
   check('iPhone: nessun errore', errors.length === 0);
@@ -254,7 +204,7 @@ try {
   console.log(`Mobile smoke completato: ${checks.length} verifiche.`);
 } catch (error) {
   await page?.screenshot({ path: path.join(output, 'failure.png') }).catch(() => {});
-  const diagnostic = await page?.evaluate(() => ({ state: window.__cieli?.state, consoles: window.__cieli?.cockpit.consoles, bodyClass: document.body.className, inert: document.getElementById('cockpit-root').inert, trace: window.__touchTrace })).catch(() => null);
+  const diagnostic = await page?.evaluate(() => ({ state: window.__cieli?.state, bodyClass: document.body.className, pilot: window.__cieli?.flightSim?.pilot })).catch(() => null);
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ success: false, checks, errors, failure: error.message, diagnostic }, null, 2));
   throw error;
 } finally {

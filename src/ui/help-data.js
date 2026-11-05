@@ -33,7 +33,7 @@ export const QUICK_GUIDE = [
     title: 'Rientro e atterraggio',
     steps: [
       'Per rientrare abbassa il periasse sotto 70 km, sgancia il modulo di servizio e tieni lo scudo termico in avanti (retrograde).',
-      'Sotto i 7 km e i 250 m/s apri il paracadute con Spazio. L’ammaraggio va fatto sotto i 12 m/s.',
+      'Sotto i 7 km e i 250 m/s apri il paracadute con Spazio. La capsula regge un ammaraggio fino a circa 17 m/s, un atterraggio sul terreno fino a 12 m/s.',
       'Sulla Luna orienta il motore contro il moto per frenare, poi in verticale (Maiusc+6); V mantiene la velocità verticale: manetta al centro = volo stazionario.',
       'Lo spazioplano Albatro plana: estrai il carrello con G, tocca la pista a meno di 3 m/s di discesa e frena con B.',
     ],

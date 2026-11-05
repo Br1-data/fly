@@ -28,7 +28,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     backgroundColor: '#0a121d',
-    title: 'Cieli Aperti Flight Simulator',
+    title: 'Cieli Aperti – Space Edition',
     icon: path.join(ROOT, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     autoHideMenuBar: true,
     show: false,
