@@ -1,0 +1,29 @@
+{
+  "earth": {
+    "file": "earth_height.png",
+    "width": 2048,
+    "height": 1024,
+    "offset": 11500,
+    "scale": 2,
+    "min": -10894.301540798611,
+    "max": 7344.233995225695
+  },
+  "moon": {
+    "file": "moon_height.png",
+    "width": 2048,
+    "height": 1024,
+    "offset": 11000,
+    "scale": 2,
+    "min": -6615.02783203125,
+    "max": 2371.61279296875
+  },
+  "mars": {
+    "file": "mars_height.png",
+    "width": 1440,
+    "height": 720,
+    "offset": 9000,
+    "scale": 2,
+    "min": -9978.359375,
+    "max": 22774.296875
+  }
+}

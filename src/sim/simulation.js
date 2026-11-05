@@ -1,10 +1,11 @@
 // Simulation shell: scenario setup, fixed-step physics, time warp (physics and on rails),
-// sphere-of-influence changes, orbiting objects, targets, docking, collisions, maneuver nodes,
-// assists, debris and the messages / events consumed by the user interface.
+// patched-conic sphere-of-influence changes across the Solar System, rotating bodies,
+// orbiting objects, targets, docking, collisions, maneuver nodes, assists, debris and the
+// messages / events consumed by the user interface. Time t: seconds from J2000.
 import { V3, Quat, clamp, G0 } from '../core/math.js';
 import { Spacecraft } from './spacecraft.js';
 import { getShip } from './ships.js';
-import { BODIES, AUSONIA, LUCINA, OBJECTS, SITES, lucinaState, sunDirection, siteFrame, swarmAsteroids, atmosphereAt } from './system.js';
+import { BODIES, OBJECTS, SITES, bodyState, relativeState, bodyOrientation, bodySpin, toFixed, siteFrame, swarmAsteroids, atmosphereAt, childrenOf, j2000FromDate } from './system.js';
 import { propagate, elements, circularState, orbitalFrame } from './orbit.js';
 import { rotationCommand, killVelocityCommand, flightAssistCommand, verticalSpeedThrottle, lookRotation, SAS_MODES } from './assist.js';
 import * as M from './maneuver.js';
@@ -12,17 +13,39 @@ import * as M from './maneuver.js';
 export const DEFAULT_SETTINGS = {
   crashes: true,
   unlimitedFuel: false,
-  heating: true,
   autoWarpStop: true,
 };
 
-export const WARP_LEVELS = [1, 2, 4, 10, 50, 100, 1000, 10000, 100000];
+export const WARP_LEVELS = [1, 2, 4, 10, 50, 100, 1000, 10000, 100000, 1000000];
 const PHYSICS_WARP_MAX = 4;
 const PHYSICS_WARP_LIMIT = 10;
 const DT = 1 / 240;
+/** Default epoch of free flights: 20 May 2031, 08:00 UTC. */
+export const DEFAULT_DATE = '2031-05-20T08:00:00Z';
 
-/** Body-frame vector from an array. */
 const v3 = (a) => new V3(a[0], a[1], a[2]);
+
+/** Equatorial frame of a body (inertial): z = spin axis, x = ascending node on the J2000 equator. */
+export function equatorFrame(id, t) {
+  const b = BODIES[id];
+  const q = bodyOrientation(id, t);
+  const z = q.rotate(new V3(0, 0, 1), new V3());
+  if (b.rotation !== 'locked' && id === 'earth') return { x: new V3(1, 0, 0), y: new V3(0, 1, 0), z: new V3(0, 0, 1) };
+  let x = new V3().crossVectors(new V3(0, 0, 1), z);
+  if (x.len() < 1e-6) x = new V3(1, 0, 0);
+  x.normalize();
+  const y = new V3().crossVectors(z, x);
+  return { x, y, z };
+}
+
+/** Circular orbit state around `ref` with inclination / node relative to its equator. */
+export function circularAround(ref, t, radius, inclinationDeg = 0, lanDeg = 0, argLat = 0) {
+  const body = BODIES[ref];
+  const s = circularState(body.mu, radius, { inclination: (inclinationDeg * Math.PI) / 180, lan: (lanDeg * Math.PI) / 180, argLat });
+  const f = equatorFrame(ref, t);
+  const map = (v) => new V3().addScaled(f.x, v.x).addScaled(f.y, v.y).addScaled(f.z, v.z);
+  return { pos: map(s.pos), vel: map(s.vel) };
+}
 
 export class Simulation {
   constructor() {
@@ -38,6 +61,7 @@ export class Simulation {
     this.markers = [];
     this.pilot = this.blankPilot();
     this.cockpitInput = {};
+    this.sunDir = new V3(1, 0, 0);
   }
 
   blankPilot() {
@@ -52,7 +76,7 @@ export class Simulation {
     return WARP_LEVELS[this.warpIndex];
   }
 
-  /** Warp levels above ×4 run on rails when possible; ×10 may also run as physics warp. */
+  /** Levels above ×4 run on rails when possible; ×10 may also run as physics warp. */
   get onRails() {
     const w = this.timeWarp;
     if (w <= PHYSICS_WARP_MAX) return false;
@@ -68,6 +92,10 @@ export class Simulation {
     return BODIES[this.ship.ref];
   }
 
+  get date() {
+    return new Date(Date.UTC(2000, 0, 1, 12, 0, 0) + this.t * 1000);
+  }
+
   message(text, kind = 'info', duration = 4) {
     this.messages.push({ text, kind, duration, t: this.t });
   }
@@ -76,16 +104,46 @@ export class Simulation {
     this.events.push(ev);
   }
 
+  // ------------------------------------------------------------------ frames
+  /** Heliocentric position of a body. */
+  bodyPos(id, out = new V3()) {
+    return out.copy(bodyState(id, this.t).pos);
+  }
+
+  /** Heliocentric position of a point given relative to `ref`. */
+  absolute(ref, pos, out = new V3()) {
+    return out.copy(pos).add(bodyState(ref, this.t).pos);
+  }
+
+  absoluteVel(ref, vel, out = new V3()) {
+    return out.copy(vel).add(bodyState(ref, this.t).vel);
+  }
+
+  /** Terrain height under a position relative to `ref`. */
+  heightAt(ref, rel) {
+    const f = toFixed(ref, this.t, rel);
+    const l = f.len() || 1;
+    return BODIES[ref].terrain.height(f.x / l, f.y / l, f.z / l);
+  }
+
+  /** State of an object relative to the ship's current reference body. */
+  relToShipRef(o) {
+    const s = { pos: o.pos.clone(), vel: o.vel.clone() };
+    if (o.ref === this.ship.ref) return s;
+    const r = relativeState(o.ref, this.ship.ref, this.t);
+    s.pos.add(r.pos);
+    s.vel.add(r.vel);
+    return s;
+  }
+
   // ------------------------------------------------------------------ setup
   /**
-   * opts: { ship, start, sunLon, lucinaPhase, fuel (0..1), mono (0..1), objects: [ids],
-   *         extraObjects: [defs], target, node, stationArgLat, assists: {sas, rcs, fa} }
+   * opts: { ship, start, date (ISO) | time (J2000 s), fuel (0..1), mono (0..1), objects: [ids],
+   *         extraObjects: [defs], target, node, stage, assists: {sas, rcs, fa} }
    */
   setup(opts = {}) {
     this.opts = opts;
-    this.t = opts.time || 0;
-    this.lucinaPhase = opts.lucinaPhase ?? 0.6;
-    this.sunDir = sunDirection(opts.sunLon ?? 25, opts.sunDec ?? 7);
+    this.t = opts.time ?? j2000FromDate(new Date(opts.date || DEFAULT_DATE));
     this.warpIndex = 0;
     this.events = [];
     this.messages = [];
@@ -95,13 +153,17 @@ export class Simulation {
     this.autoBurn = false;
     this.ascent = null;
     this.docked = null;
+    this.anchor = null;
     this.prediction = null;
+    this.nodePrediction = null;
+    this.approach = null;
     this._predTimer = 0;
     this.timeSinceStart = 0;
     this.flightTime = 0;
     this.distanceTravelled = 0;
     this.pilot = this.blankPilot();
     this.cockpitInput = {};
+    this.warpTarget = null;
     const def = getShip(opts.ship || 'capsule');
     const ship = (this.ship = new Spacecraft(def));
     for (const st of ship.stages) st.fuelLeft = st.fuel * (opts.fuel ?? 1);
@@ -110,17 +172,18 @@ export class Simulation {
     ship.updateMass();
     this.sas = { on: opts.assists?.sas ?? true, mode: 'stab', hold: null };
     ship.rcsEnabled = opts.assists?.rcs ?? true;
-    this.fa = !!(def.flightAssist && (opts.assists?.fa ?? true));
+    this.fa = !!(def.flightAssist && (opts.assists?.fa ?? false));
     this.vsHold = false;
     this.fuelStart = ship.fuel + ship.mono;
     this.buildObjects(opts);
-    this.placeShip(opts.start || { type: 'orbit', body: 'ausonia', altitude: 300e3 });
+    this.placeShip(opts.start || { type: 'orbit', body: 'earth', altitude: 400e3 });
     this.target = null;
     if (opts.target) this.setTarget(opts.target);
     if (opts.node) this.node = { ...opts.node, t: this.t + opts.node.in };
-    ship.legsDeployed = opts.legs ?? (opts.start?.type === 'surface' || opts.start?.type === 'hover' || def.id === 'lander');
-    if (def.gearContacts) ship.legsDeployed = opts.legs ?? opts.start?.type === 'surface';
+    const surface = opts.start?.type === 'surface' || opts.start?.type === 'hover';
+    ship.legsDeployed = opts.legs ?? (def.gearContacts ? opts.start?.type === 'surface' : surface || def.id === 'lander');
     ship.lights = !!opts.lights;
+    this.updateSun();
     this.updateAltitude();
     this.lastShipAbs = this.absolute(ship.ref, ship.pos);
     this.refreshPrediction(true);
@@ -128,7 +191,7 @@ export class Simulation {
   }
 
   buildObjects(opts) {
-    const ids = opts.objects || ['aurora', 'ardesia', 'selene'];
+    const ids = opts.objects || ['aurora', 'detriti', 'selene', 'phobos', 'deimos'];
     this.objects = [];
     for (const id of ids) {
       const d = OBJECTS[id];
@@ -144,23 +207,9 @@ export class Simulation {
     const body = BODIES[def.ref];
     let state;
     if (orb.state) state = { pos: v3(orb.state.pos), vel: v3(orb.state.vel) };
-    else if (orb.followsLucina) {
-      // Same circular orbit as Lucina, with an angular offset.
-      const th = this.lucinaPhase + orb.argLat;
-      const r = LUCINA.orbit.a;
-      const n = LUCINA.orbit.n;
-      state = { pos: new V3(r * Math.cos(th), r * Math.sin(th), 0), vel: new V3(-r * n * Math.sin(th), r * n * Math.cos(th), 0) };
-      // Shift to t = this.t from the phase defined at t = 0.
-      const r2 = new V3(), v2 = new V3();
-      propagate(state.pos, state.vel, this.t, body.mu, r2, v2);
-      state = { pos: r2, vel: v2 };
-    } else {
-      const r = body.radius + (orb.altitude ?? 300e3);
-      state = circularState(body.mu, r, { inclination: orb.inclination || 0, lan: orb.lan || 0, argLat: orb.argLat || 0 });
-      if (orb.e) {
-        // Mildly eccentric: scale velocity at this point.
-        state.vel.scale(Math.sqrt(1 + orb.e));
-      }
+    else {
+      state = circularAround(def.ref, this.t, body.radius + (orb.altitude ?? 400e3), orb.inclination || 0, orb.lan || 0, orb.argLat || 0);
+      if (orb.e) state.vel.scale(Math.sqrt(1 + orb.e));
     }
     o.pos0 = state.pos;
     o.vel0 = state.vel;
@@ -177,41 +226,8 @@ export class Simulation {
   }
 
   objectState(o, t, pos = new V3(), vel = new V3()) {
-    if (o.dynamic) {
-      pos.copy(o.pos);
-      vel.copy(o.vel);
-      return { pos, vel };
-    }
     propagate(o.pos0, o.vel0, t - o.t0, BODIES[o.ref].mu, pos, vel);
     return { pos, vel };
-  }
-
-  /** Ausonia-centred absolute position of a point given relative to `ref`. */
-  absolute(ref, pos, out = new V3()) {
-    out.copy(pos);
-    if (ref === 'lucina') out.add(lucinaState(this.t, this.lucinaPhase).pos);
-    return out;
-  }
-
-  absoluteVel(ref, vel, out = new V3()) {
-    out.copy(vel);
-    if (ref === 'lucina') out.add(lucinaState(this.t, this.lucinaPhase).vel);
-    return out;
-  }
-
-  /** State of an object relative to the ship's current reference body. */
-  relToShipRef(o) {
-    const s = { pos: o.pos.clone(), vel: o.vel.clone() };
-    if (o.ref === this.ship.ref) return s;
-    const L = lucinaState(this.t, this.lucinaPhase);
-    const sign = o.ref === 'lucina' ? 1 : -1;
-    s.pos.addScaled(L.pos, sign);
-    s.vel.addScaled(L.vel, sign);
-    return s;
-  }
-
-  bodyPos(id, out = new V3()) {
-    return id === 'lucina' ? lucinaState(this.t, this.lucinaPhase, out).pos : out.set(0, 0, 0);
   }
 
   placeShip(start) {
@@ -220,29 +236,28 @@ export class Simulation {
     ship.omega.set(0, 0, 0);
     switch (start.type) {
       case 'orbit': {
-        const body = BODIES[start.body || 'ausonia'];
+        const body = BODIES[start.body || 'earth'];
         ship.ref = body.id;
-        const r = body.radius + (start.altitude ?? 300e3);
-        if (start.e || start.pe !== undefined) {
-          const rp = body.radius + (start.pe ?? start.altitude);
-          const ra = body.radius + (start.ap ?? start.altitude);
-          const a = (rp + ra) / 2;
-          const s = circularState(body.mu, rp, { inclination: (start.inclination || 0) * Math.PI / 180, lan: (start.lan || 0) * Math.PI / 180, argLat: start.argLat || 0 });
-          s.vel.scale(Math.sqrt(body.mu * (2 / rp - 1 / a)) / s.vel.len());
-          ship.pos.copy(s.pos);
-          ship.vel.copy(s.vel);
-          if (start.anomaly) {
-            const r2 = new V3(), v2 = new V3();
-            const el = elements(s.pos, s.vel, body.mu);
-            propagate(s.pos, s.vel, (start.anomaly / (2 * Math.PI)) * el.period, body.mu, r2, v2);
-            ship.pos.copy(r2);
-            ship.vel.copy(v2);
+        const rp = body.radius + (start.pe ?? start.altitude ?? 400e3);
+        const ra = body.radius + (start.ap ?? start.altitude ?? 400e3);
+        const s = circularAround(body.id, this.t, rp, start.inclination || 0, start.lan || 0, start.argLat || 0);
+        if (start.departureTo) {
+          // Parking orbit whose plane contains the departure asymptote towards a planet.
+          const pc = M.porkchop(body.id, start.departureTo, this.t);
+          if (pc) {
+            const vh = pc.vinf.clone().normalize();
+            const z = new V3(0, 0, 1);
+            const n = z.clone().addScaled(vh, -z.dot(vh)).normalize();
+            const x = vh.clone(), y = new V3().crossVectors(n, x);
+            const a = start.argLat || 0;
+            s.pos.copy(x.clone().scale(Math.cos(a)).addScaled(y, Math.sin(a))).scale(rp);
+            s.vel.copy(x.clone().scale(-Math.sin(a)).addScaled(y, Math.cos(a))).scale(Math.sqrt(body.mu / rp));
+            this.departureWindow = pc;
           }
-        } else {
-          const s = circularState(body.mu, r, { inclination: (start.inclination || 0) * Math.PI / 180, lan: (start.lan || 0) * Math.PI / 180, argLat: start.argLat || 0 });
-          ship.pos.copy(s.pos);
-          ship.vel.copy(s.vel);
         }
+        if (ra !== rp) s.vel.scale(Math.sqrt(body.mu * (2 / rp - 2 / (rp + ra))) / s.vel.len());
+        ship.pos.copy(s.pos);
+        ship.vel.copy(s.vel);
         this.orient(start.attitude || 'prograde');
         break;
       }
@@ -255,17 +270,16 @@ export class Simulation {
           const port = o.def.ports.find((p) => p.id === start.port) || o.def.ports[0];
           const pw = o.q.rotate(v3(port.pos), new V3()).add(o.pos);
           const dw = o.q.rotate(v3(port.dir), new V3());
-          const upw = o.q.rotate(v3(port.up || [0, 0, -1]), new V3());
+          const upw = o.q.rotate(v3(port.up || (Math.abs(port.dir[2]) > 0.5 ? [1, 0, 0] : [0, 0, -1])), new V3());
           const right = new V3().crossVectors(dw, upw);
           const lat = start.lateral || [0, 0];
-          const shipPort = this.shipPortOffset();
           const facing = lookRotation(dw.clone().scale(-1), upw);
           if (start.yawError || start.pitchError) {
-            const qe = new Quat().setFromEuler(0, (start.pitchError || 0) * Math.PI / 180, (start.yawError || 0) * Math.PI / 180);
+            const qe = new Quat().setFromEuler(0, ((start.pitchError || 0) * Math.PI) / 180, ((start.yawError || 0) * Math.PI) / 180);
             facing.copy(mulQ(facing, qe));
           }
           ship.q.copy(facing);
-          const portW = ship.q.rotate(shipPort, new V3());
+          const portW = ship.q.rotate(this.shipPortOffset(), new V3());
           ship.pos.copy(pw).addScaled(dw, start.distance ?? 100).addScaled(right, lat[0]).addScaled(upw, lat[1]).sub(portW);
           ship.vel.copy(o.vel);
           if (start.relVel) ship.vel.addScaled(dw, -start.relVel[0]).addScaled(right, start.relVel[1] || 0).addScaled(upw, start.relVel[2] || 0);
@@ -279,56 +293,67 @@ export class Simulation {
           const rv = start.relVel || [0, 0, 0];
           ship.vel.addScaled(pro, rv[0]).addScaled(rad, rv[1]).addScaled(nor, rv[2]);
           if (start.circular) {
-            // Own circular orbit at that radius (for phasing scenarios).
-            const s = circularState(BODIES[o.ref].mu, ship.pos.len());
+            const body = BODIES[o.ref];
             const h = new V3().crossVectors(o.pos, o.vel).normalize();
             const dir = new V3().crossVectors(h, ship.pos).normalize();
-            ship.vel.copy(dir.scale(s.vel.len()));
+            ship.vel.copy(dir.scale(Math.sqrt(body.mu / ship.pos.len())));
           }
           this.orient(start.attitude || 'target', o);
         }
         break;
       }
       case 'surface': {
-        const s = SITES[start.site || 'spaceport'];
-        const pad = start.pad !== undefined && s.pads ? s.pads[start.pad] : s.pad || { east: 0, north: 0 };
-        const f = siteFrame(s, (pad.east || 0) + (start.east || 0), (pad.north || 0) + (start.north || 0));
+        const s = SITES[start.site || 'malindi'];
+        const pad = start.pad !== undefined && s.pads ? s.pads[start.pad] : start.runway ? { east: s.runway.east, north: s.runway.north } : s.pad || { east: 0, north: 0 };
+        let east = (pad.east || 0) + (start.east || 0), north = (pad.north || 0) + (start.north || 0);
+        const heading = ((start.heading ?? (start.runway ? s.runway.heading : 0)) * Math.PI) / 180;
+        if (start.runway) {
+          // At the threshold of the runway, pointing along it.
+          const half = s.runway.length / 2 - 80;
+          east -= Math.sin(heading) * half;
+          north -= Math.cos(heading) * half;
+        }
+        const f = siteFrame(s, this.t, east, north);
         ship.ref = s.body;
-        // Stand on the lowest contact point.
         const pts = ship.contactPoints();
-        const low = Math.min(...pts.map((c) => c.p[0] - ship.com - c.r));
-        const heading = ((start.heading ?? 0) * Math.PI) / 180;
         const facing = f.north.clone().scale(Math.cos(heading)).addScaled(f.east, Math.sin(heading));
         if (def.controlStyle === 'aircraft') {
-          // Horizontal vehicles: nose along the heading, belly down.
           ship.q.copy(lookRotation(facing, f.up));
           const lowZ = Math.max(...pts.map((c) => c.p[2] + c.r));
-          ship.pos.copy(f.up).scale(f.body.radius + f.height + lowZ + 0.02);
+          ship.pos.copy(f.up).scale(f.body.radius + (f.body.ocean ? Math.max(f.height, 0) : f.height) + lowZ + 0.02);
         } else {
-          // Vertical vehicles: x up, the cockpit (+z for landers, -z otherwise) towards the heading.
-          const cockpitBelly = def.camera.look === 'belly';
-          ship.q.copy(lookRotation(f.up, cockpitBelly ? facing.clone().scale(-1) : facing));
+          const low = Math.min(...pts.map((c) => c.p[0] - ship.com - c.r));
+          ship.q.copy(lookRotation(f.up, def.camera.look === 'belly' ? facing.clone().scale(-1) : facing));
           ship.pos.copy(f.up).scale(f.body.radius + f.height - low + 0.02);
         }
-        ship.vel.set(0, 0, 0);
+        ship.vel.copy(new V3().crossVectors(bodySpin(s.body, this.t), ship.pos));
         ship.landed = true;
         break;
       }
-      case 'hover': {
-        const s = SITES[start.site || 'lucerna'];
-        const f = siteFrame(s, start.east || 0, start.north || 0);
+      case 'hover':
+      case 'approach': {
+        // Above a site: altitude, offsets east/north (m), velocity [east, north, up] relative to the ground.
+        const s = SITES[start.site || 'tranquillitatis'];
+        const f = siteFrame(s, this.t, start.east || 0, start.north || 0);
         ship.ref = s.body;
-        ship.pos.copy(f.up).scale(f.body.radius + f.height + (start.altitude ?? 500));
+        ship.pos.copy(f.up).scale(f.body.radius + (f.body.ocean ? Math.max(f.height, 0) : f.height) + (start.altitude ?? 500));
         const v = start.vel || [0, 0, 0];
-        ship.vel.set(0, 0, 0).addScaled(f.east, v[0]).addScaled(f.north, v[1]).addScaled(f.up, v[2]);
+        const ground = new V3().crossVectors(bodySpin(s.body, this.t), ship.pos);
+        ship.vel.copy(ground).addScaled(f.east, v[0]).addScaled(f.north, v[1]).addScaled(f.up, v[2]);
         const heading = ((start.heading ?? 0) * Math.PI) / 180;
         const facing = f.north.clone().scale(Math.cos(heading)).addScaled(f.east, Math.sin(heading));
-        const tilt = start.tilt ? lookRotation(f.up.clone().addScaled(facing, Math.tan(start.tilt * Math.PI / 180)).normalize(), facing.clone().scale(-1)) : null;
-        ship.q.copy(tilt || lookRotation(f.up, def.camera.look === 'belly' ? facing.clone().scale(-1) : facing));
+        if (def.controlStyle === 'aircraft') {
+          const pitch = ((start.pitch ?? 0) * Math.PI) / 180;
+          const nose = facing.clone().scale(Math.cos(pitch)).addScaled(f.up, Math.sin(pitch)).normalize();
+          ship.q.copy(lookRotation(nose, f.up));
+        } else {
+          const up = start.tilt ? f.up.clone().addScaled(facing, Math.tan((start.tilt * Math.PI) / 180)).normalize() : f.up;
+          ship.q.copy(lookRotation(up, def.camera.look === 'belly' ? facing.clone().scale(-1) : facing));
+        }
         break;
       }
       case 'state': {
-        ship.ref = start.ref || 'ausonia';
+        ship.ref = start.ref || 'earth';
         ship.pos.copy(v3(start.pos));
         ship.vel.copy(v3(start.vel));
         this.orient(start.attitude || 'prograde');
@@ -339,23 +364,20 @@ export class Simulation {
     }
   }
 
-  /** Ship docking-port position relative to the centre of mass (body frame). */
   shipPortOffset() {
-    const p = this.ship.def.dockingPort;
-    return this.ship.local(p.pos, new V3());
+    return this.ship.local(this.ship.def.dockingPort.pos, new V3());
   }
 
   orient(kind, obj) {
     const ship = this.ship;
     const up = ship.pos.clone().normalize();
-    const vel = ship.vel.clone();
     if (obj && (kind === 'target' || kind === 'antiTarget')) {
       const d = obj.pos.clone().sub(ship.pos).normalize();
       if (kind === 'antiTarget') d.scale(-1);
       ship.q.copy(lookRotation(d, up));
       return;
     }
-    if (vel.len() < 0.1) {
+    if (ship.vel.len() < 0.1) {
       ship.q.copy(lookRotation(up, new V3(0, 0, 1)));
       return;
     }
@@ -365,15 +387,30 @@ export class Simulation {
   }
 
   // ------------------------------------------------------------------ targets
-  /** Selectable targets: objects (and their ports) and celestial bodies. */
   targetList() {
     const list = [];
-    for (const o of this.objects) {
-      if (o.hidden) continue;
-      list.push({ kind: 'object', id: o.id, name: o.name });
-    }
-    for (const b of Object.values(BODIES)) if (b.id !== this.ship.ref) list.push({ kind: 'body', id: b.id, name: b.name });
+    for (const o of this.objects) if (!o.hidden) list.push({ kind: 'object', id: o.id, name: o.name, ref: o.ref });
+    // Bodies near the ship: its parent, its children and the siblings (planets from a planet).
+    const ref = this.ship.ref;
+    const b = BODIES[ref];
+    const near = new Set([...childrenOf(ref).map((c) => c.id)]);
+    if (b.parent && b.parent !== 'sun') near.add(b.parent);
+    if (b.parent === 'sun' || ref === 'sun') for (const c of childrenOf('sun')) if (c.id !== ref) near.add(c.id);
+    if (b.parent && b.parent !== 'sun') for (const c of childrenOf('sun')) if (c.id !== b.parent) near.add(c.id);
+    for (const id of near) list.push({ kind: 'body', id, name: BODIES[id].name });
+    // Objects close to the ship first.
+    list.sort((a, c) => this.targetDistance(a) - this.targetDistance(c));
     return list;
+  }
+
+  targetDistance(item) {
+    const s = this.ship;
+    const abs = this.absolute(s.ref, s.pos);
+    if (item.kind === 'object') {
+      const o = this.objects.find((x) => x.id === item.id);
+      return this.absolute(o.ref, o.pos).sub(abs).len();
+    }
+    return this.bodyPos(item.id).sub(abs).len() - BODIES[item.id].radius;
   }
 
   setTarget(spec) {
@@ -397,9 +434,8 @@ export class Simulation {
     if (!list.length) return;
     const cur = this.target ? list.findIndex((x) => x.id === this.target.id) : -1;
     let next = cur + dir;
-    if (next >= list.length || next < -1) next = -1;
-    if (next < -1) next = list.length - 1;
-    if (dir < 0 && cur === -1) next = list.length - 1;
+    if (cur === -1 && dir < 0) next = list.length - 1;
+    if (next >= list.length || next < 0) next = -1;
     if (next === -1) {
       this.target = null;
       this.message('Nessun bersaglio', 'info', 2);
@@ -421,12 +457,9 @@ export class Simulation {
     const t = this.target;
     if (!t) return null;
     if (t.kind === 'object') return this.relToShipRef(t.object);
-    const L = lucinaState(this.t, this.lucinaPhase);
-    if (t.id === 'lucina') return { pos: L.pos.clone(), vel: L.vel.clone() };
-    return { pos: L.pos.clone().scale(-1), vel: L.vel.clone().scale(-1) };
+    return relativeState(t.id, this.ship.ref, this.t);
   }
 
-  /** World (ship-ref) position, direction and up of the selected docking port. */
   targetPort() {
     const t = this.target;
     if (!t || t.kind !== 'object' || t.portIndex < 0) return null;
@@ -462,7 +495,7 @@ export class Simulation {
           this.message('Seleziona prima un bersaglio (Tab)', 'warn', 3);
           break;
         }
-        if (arg === 'port' && this.target?.portIndex < 0) {
+        if (arg === 'port' && !(this.target?.portIndex >= 0)) {
           this.message('Il bersaglio non ha porte di attracco', 'warn', 3);
           break;
         }
@@ -488,13 +521,16 @@ export class Simulation {
           break;
         }
         this.fa = typeof arg === 'boolean' ? arg : !this.fa;
-        this.message(this.fa ? 'Assistenza al volo: ATTIVA (la manetta imposta la velocità)' : 'Assistenza al volo: disattivata', 'info', 3);
+        this.message(this.fa ? 'Assistenza al volo: la manetta imposta la velocità relativa al bersaglio' : 'Assistenza al volo disattivata', 'info', 3);
         break;
       case 'vsHold':
         if (!ship.engineStage) break;
         this.vsHold = typeof arg === 'boolean' ? arg : !this.vsHold;
         if (this.vsHold) this.pilot.throttle = 0.5;
-        this.message(this.vsHold ? 'Controllo velocità verticale: manetta al centro = hovering' : 'Controllo velocità verticale disattivato', 'info', 3.5);
+        this.message(this.vsHold ? 'Controllo velocità verticale: manetta al centro = volo stazionario' : 'Controllo velocità verticale disattivato', 'info', 3.5);
+        break;
+      case 'brakes':
+        ship.brakes = typeof arg === 'boolean' ? arg : !ship.brakes;
         break;
       case 'action': {
         if (this.docked) return this.command('undock');
@@ -507,6 +543,7 @@ export class Simulation {
         return this.command('separate');
       }
       case 'separate': {
+        if (this.anchor) this.anchor = null;
         const dropped = ship.separate();
         if (!dropped) break;
         this.spawnDebris(dropped);
@@ -528,8 +565,7 @@ export class Simulation {
         break;
       }
       case 'undock':
-        if (!this.docked) break;
-        this.undock();
+        if (this.docked) this.undock();
         break;
       case 'legs':
         if (!ship.hasLegs && !ship.def.gearContacts) break;
@@ -603,19 +639,25 @@ export class Simulation {
     this.refreshPrediction(true);
   }
 
+  /** Default capture / re-entry periapsis altitudes per body. */
+  periapsisFor(id) {
+    return { earth: 60e3, moon: 100e3, mars: 300e3, venus: 400e3, mercury: 200e3 }[id] ?? Math.max(200e3, BODIES[id].radius * 0.3);
+  }
+
   plan(kind) {
     const s = this.ship;
     const ref = s.ref, pos = s.pos, vel = s.vel, t = this.t;
     let node = null;
     const body = this.body;
     const tgt = this.target?.kind === 'object' ? this.target.object : null;
+    const tbody = this.target?.kind === 'body' ? this.target.id : null;
     try {
       switch (kind) {
         case 'circAp': node = M.planCircularize(ref, pos, vel, t, 'ap'); break;
         case 'circPe': node = M.planCircularize(ref, pos, vel, t, 'pe'); break;
-        case 'raiseAp': node = M.planApsis(ref, pos, vel, t, Math.max(elements(pos, vel, body.mu).ra || 0, pos.len()) + 100e3); break;
-        case 'lowerPe': node = M.planApsis(ref, pos, vel, t, body.radius + (body.atmosphere ? 40e3 : 15e3)); break;
-        case 'deorbit': node = M.planDeorbit(ref, pos, vel, t, body.atmosphere ? 35e3 : 8e3, 60); break;
+        case 'raiseAp': node = M.planApsis(ref, pos, vel, t, Math.max(elements(pos, vel, body.mu).ra || 0, pos.len()) + Math.max(100e3, body.radius * 0.05)); break;
+        case 'lowerPe': node = M.planApsis(ref, pos, vel, t, body.radius + (body.atmosphere ? 60e3 : 15e3)); break;
+        case 'deorbit': node = M.planDeorbit(ref, pos, vel, t, body.atmosphere ? (ref === 'earth' ? 50e3 : 20e3) : 10e3, 60); break;
         case 'rendezvous':
           if (!tgt || tgt.ref !== ref) {
             this.message('Serve un bersaglio in orbita attorno allo stesso corpo', 'warn', 3.5);
@@ -630,22 +672,29 @@ export class Simulation {
           }
           node = M.planMatchPlane(ref, pos, vel, t, new V3().crossVectors(tgt.pos, tgt.vel));
           break;
+        case 'transfer': {
+          if (!tbody) {
+            this.message('Seleziona come bersaglio la Luna o un pianeta (Tab)', 'warn', 3.5);
+            return;
+          }
+          node = M.planTransfer(ref, pos, vel, t, tbody, this.periapsisFor(tbody));
+          if (!node) {
+            this.message(`Da qui non si calcola un trasferimento diretto verso ${BODIES[tbody].name}`, 'warn', 4);
+            return;
+          }
+          break;
+        }
+        case 'return': {
+          const home = body.parent === 'sun' ? 'earth' : body.parent;
+          if (!home || home === ref) {
+            this.message('Il ritorno si pianifica dall’orbita della Luna o di un pianeta', 'warn', 3.5);
+            return;
+          }
+          node = M.planReturn(ref, pos, vel, t, home, this.periapsisFor(home));
+          break;
+        }
         case 'correction':
-          node = M.planCourseCorrection(ref, pos, vel, t, this.lucinaPhase, ref === 'ausonia' ? 60e3 : 45e3);
-          break;
-        case 'lucina':
-          if (ref !== 'ausonia') {
-            this.message('Sei già nella sfera di influenza di Lucina', 'warn', 3);
-            return;
-          }
-          node = M.planLucinaTransfer(pos, vel, t, this.lucinaPhase, 60e3);
-          break;
-        case 'return':
-          if (ref !== 'lucina') {
-            this.message('Il ritorno si pianifica dall’orbita di Lucina', 'warn', 3);
-            return;
-          }
-          node = M.planReturnToAusonia(pos, vel, t, this.lucinaPhase, 45e3);
+          node = M.planCourseCorrection(ref, pos, vel, t, (id) => this.periapsisFor(id));
           break;
         default:
           return;
@@ -662,11 +711,10 @@ export class Simulation {
     this.autoBurn = false;
     this.refreshPrediction(true);
     const dv = Math.hypot(this.node.pro, this.node.nor, this.node.rad);
-    this.message(`Manovra pianificata: Δv ${dv.toFixed(1)} m/s tra ${fmtTime(this.node.t - this.t)}`, 'info', 4);
+    this.message(`Manovra pianificata: Δv ${dv.toFixed(1)} m/s tra ${fmtTime(this.node.t - this.t)}`, 'info', 5);
     this.emit({ type: 'node' });
   }
 
-  /** State at the node time and the burn vector, cached until the orbit changes. */
   nodeInfo() {
     const n = this.node;
     if (!n) return null;
@@ -674,7 +722,6 @@ export class Simulation {
     if (!n.started) {
       const { r, v } = M.stateAt(s.ref, s.pos, s.vel, this.t, Math.max(n.t, this.t));
       n.dvWorld = M.nodeVector(n, r, v);
-      // Close to the node the burn vector is frozen in inertial space.
       const bt = M.burnTime(s, n.dvWorld.len());
       if (this.t >= n.t - (Number.isFinite(bt) ? bt : 0) / 2 - 3) {
         n.started = true;
@@ -691,58 +738,87 @@ export class Simulation {
   // ------------------------------------------------------------------ ascent autopilot
   toggleAscent(arg) {
     const s = this.ship;
-    if (!s.def.launchVehicle && s.ref !== 'ausonia') return;
     if (this.ascent && arg !== true) {
       this.ascent = null;
       this.message('Autopilota di ascesa disinserito', 'info', 2.5);
       return;
     }
-    const site = SITES.spaceport;
-    const f = siteFrame(site);
-    this.ascent = { targetAp: (arg?.ap || 120e3), heading: 90, east: f.east, phase: 'climb' };
+    if (!s.engineStage) return;
+    const body = this.body;
+    // Launch azimuth for the target inclination (or due east).
+    const up = s.pos.clone().normalize();
+    const pole = bodyOrientation(body.id, this.t).rotate(new V3(0, 0, 1), new V3());
+    const lat = Math.asin(clamp(up.dot(pole), -1, 1));
+    const inc = (((arg?.inclination ?? this.opts?.ascentInclination ?? 0) * Math.PI) / 180);
+    let az = Math.PI / 2;
+    if (inc > Math.abs(lat)) az = Math.asin(clamp(Math.cos(inc) / Math.cos(lat), -1, 1));
+    this.ascent = { targetAp: arg?.ap || (body.atmosphere ? Math.max(body.atmosphere.height + 60e3, 200e3) : 30e3), azimuth: az, phase: 'climb' };
     this.sas.on = true;
     this.sas.mode = 'stab';
-    this.message('Autopilota di ascesa: virata gravitazionale verso est, apoasse 120 km', 'info', 4);
+    this.message(`Autopilota di ascesa: virata gravitazionale, rotta ${Math.round((az * 180) / Math.PI)}°, apoasse ${Math.round(this.ascent.targetAp / 1000)} km`, 'info', 4.5);
   }
 
-  ascentGuidance(dt) {
+  ascentGuidance() {
     const a = this.ascent;
     const s = this.ship;
     if (!a || s.destroyed) return null;
+    const body = this.body;
     const up = s.pos.clone().normalize();
     const alt = s.altitude;
-    const el = elements(s.pos, s.vel, AUSONIA.mu);
-    const east = new V3().crossVectors(new V3(0, 0, 1), up).normalize();
-    // Automatic staging when the stage runs dry.
+    const el = elements(s.pos, s.vel, body.mu);
+    const pole = bodyOrientation(body.id, this.t).rotate(new V3(0, 0, 1), new V3());
+    const east = new V3().crossVectors(pole, up).normalize();
+    const north = new V3().crossVectors(up, east);
+    const heading = east.clone().scale(Math.sin(a.azimuth)).addScaled(north, Math.cos(a.azimuth));
     if (s.engineStage && s.engineStage.fuelLeft <= 0 && s.stageIndex < s.stages.length - 2) this.command('separate');
+    const dense = body.atmosphere ? body.atmosphere.scaleHeight * 5 : 2000;
     if (a.phase === 'climb') {
+      // Inertial velocity includes the body's rotation: use it for the flight-path angle.
       const speed = s.vel.len();
-      const fpa = (Math.asin(clamp(s.vel.clone().normalize().dot(up), -1, 1)) * 180) / Math.PI;
+      // In the air the flight path is relative to the rotating atmosphere; above it, inertial.
+      const airVel = s.vel.clone().sub(new V3().crossVectors(bodySpin(body.id, this.t), s.pos));
+      const air = airVel.len();
+      const useAir = alt < dense;
+      const fpa = (Math.asin(clamp((useAir ? airVel : s.vel).clone().normalize().dot(up), -1, 1)) * 180) / Math.PI;
       let pitch = 90;
-      if (speed > 60 && alt < 38000) {
-        // Altitude programme, never far from prograde in the dense air.
-        const prog = 90 - 88 * Math.pow(clamp((alt - 600) / 46000, 0, 1), 0.5);
-        const aoa = s.dynPressure > 8000 ? 4 : 10;
-        pitch = speed > 120 ? clamp(prog, fpa - aoa, fpa + aoa) : Math.max(prog, 84);
-      } else if (speed > 60) {
-        // Above the dense air: hold about 45 s to apoapsis.
-        const tAp = el.e < 1 ? el.timeToAp : 0;
-        const tWant = 45;
-        const err = tAp > el.period / 2 ? 60 : tWant - tAp;
-        pitch = clamp(fpa + err * 0.5, -8, 35);
+      const top = dense * 1.5;
+      if (air > 60 && alt < dense) {
+        // Pitch programme in the dense air, never far from the air-relative prograde.
+        const prog = 90 - 80 * Math.pow(clamp((alt - 800) / top, 0, 1), 0.7);
+        const aoa = s.dynPressure > 15000 ? 3 : 8;
+        pitch = air > 150 ? clamp(prog, fpa - aoa, fpa + aoa) : Math.max(prog, 84);
+      } else if (air > 60) {
+        // Closed-loop insertion: vertical speed proportional to the apoapsis error, the rest
+        // of the thrust horizontal until the periapsis is out of the atmosphere.
+        const r = s.pos.len();
+        const vz = s.vel.dot(up);
+        const vh = s.vel.clone().addScaled(up, -vz).len();
+        const acc = Math.max(0.5, s.thrust / s.mass || s.maxAccel());
+        const apErr = a.targetAp - (el.e < 1 ? el.ra - body.radius : a.targetAp * 3);
+        const altErr = a.targetAp - alt;
+        const vzWant = clamp(altErr * 0.012 + apErr * 0.002, -120, 400);
+        const az = (vzWant - vz) / 12 + body.mu / (r * r) - (vh * vh) / r;
+        pitch = (Math.asin(clamp(az / acc, -0.35, 0.85)) * 180) / Math.PI;
+        a.throttle = clamp((Math.sqrt(body.mu / r) - vh) / (acc * 4), 0.05, 1);
+        if (vh >= Math.sqrt(body.mu / r) * 0.9995 && el.rp - body.radius > (body.atmosphere ? Math.min(body.atmosphere.height, 120e3) : 5e3)) {
+          this.emit({ type: 'orbit' });
+          if (el.e > 0.012) {
+            a.phase = 'coast';
+            this.message(`Orbita raggiunta: ${Math.round((el.rp - body.radius) / 1000)} × ${Math.round((el.ra - body.radius) / 1000)} km. Circolarizzazione all’apoasse`, 'info', 5);
+          } else {
+            this.ascent = null;
+            this.message(`Orbita raggiunta: ${Math.round((el.rp - body.radius) / 1000)} × ${Math.round((el.ra - body.radius) / 1000)} km. Autopilota di ascesa completato`, 'info', 5);
+          }
+          return { dir: s.vel.clone().normalize(), up, throttle: 0 };
+        }
       }
-      const pr2 = (pitch * Math.PI) / 180;
-      const dir = up.clone().scale(Math.sin(pr2)).addScaled(east, Math.cos(pr2)).normalize();
-      if (speed > 150 && el.e < 1 && el.ra - AUSONIA.radius >= a.targetAp && alt > 30000) {
-        a.phase = 'coast';
-        this.message('Apoasse raggiunto: spegnimento e volo balistico fino all’apoasse', 'info', 4);
-        return { dir: s.vel.clone().normalize(), up, throttle: 0 };
-      }
-      const left = speed > 150 && el.e < 1 ? a.targetAp - (el.ra - AUSONIA.radius) : Infinity;
-      return { dir, up: east.clone().scale(-1).addScaled(up, 0.01), throttle: left < 4000 ? Math.max(0.15, left / 4000) : 1 };
+      const pr = (pitch * Math.PI) / 180;
+      const dir = up.clone().scale(Math.sin(pr)).addScaled(heading, Math.cos(pr)).normalize();
+      void speed;
+      return { dir, up: heading.clone().scale(-1).addScaled(up, 0.01), throttle: a.throttle ?? 1 };
     }
     if (a.phase === 'coast') {
-      if (alt > AUSONIA.atmosphere.height + 1000 && !this.node) {
+      if ((!body.atmosphere || alt > Math.min(body.atmosphere.height, 120e3)) && !this.node) {
         this.plan('circAp');
         if (this.node) this.command('autoBurn', true);
         a.phase = 'circularize';
@@ -761,11 +837,11 @@ export class Simulation {
     const s = this.ship;
     if (this.docked) return { ok: true };
     if (s.destroyed) return { ok: false };
-    if (s.landed && s.vel.len() < 0.3) return { ok: true };
-    if (s.engineOn || this.pilot.throttle > 0.001 && !this.fa) return { ok: false, why: 'motore acceso' };
+    if (s.landed) return { ok: true };
+    if (s.engineOn || (this.pilot.throttle > 0.001 && !this.fa && !this.vsHold)) return { ok: false, why: 'motore acceso' };
     const body = this.body;
-    if (body.atmosphere && s.altitude < body.atmosphere.height) return { ok: false, why: 'in atmosfera' };
-    if (s.agl < 3000) return { ok: false, why: 'troppo vicino alla superficie' };
+    if (body.atmosphere && s.altitude < Math.min(body.atmosphere.height, 140e3)) return { ok: false, why: 'in atmosfera' };
+    if (s.agl < Math.max(5000, (body.terrain?.maxHeight || 0) * 0.5)) return { ok: false, why: 'troppo vicino alla superficie' };
     return { ok: true };
   }
 
@@ -778,10 +854,10 @@ export class Simulation {
       const ok = this.canRails();
       this._railsOk = ok.ok;
       if (!ok.ok) {
-        idx = Math.min(idx, WARP_LEVELS.indexOf(PHYSICS_WARP_LIMIT));
-        if (this.warpIndex >= idx) {
-          this.message(`Accelerazione del tempo limitata: ${ok.why || 'non disponibile'}`, 'warn', 3);
-          idx = Math.min(this.warpIndex, idx);
+        const cap = WARP_LEVELS.indexOf(PHYSICS_WARP_LIMIT);
+        if (idx > cap) {
+          this.message(`Accelerazione del tempo limitata a ×${PHYSICS_WARP_LIMIT}: ${ok.why || 'non disponibile'}`, 'warn', 3);
+          idx = cap;
         }
       }
     }
@@ -796,18 +872,21 @@ export class Simulation {
     const s = this.ship;
     const el = elements(s.pos, s.vel, this.body.mu);
     let target = null;
+    const seg = this.prediction?.[0];
     if (what === 'node' && this.node) {
       const ni = this.nodeInfo();
-      target = this.node.t - (ni.burnTime || 0) / 2 - 20;
+      target = this.node.t - (Number.isFinite(ni.burnTime) ? ni.burnTime : 0) / 2 - 30;
     } else if (what === 'ap' && el.e < 1) target = this.t + el.timeToAp - 30;
     else if (what === 'pe' && Number.isFinite(el.timeToPe)) target = this.t + el.timeToPe - 30;
-    else if (what === 'soi' && this.prediction?.[0]?.end?.startsWith('soi') || what === 'soi' && this.prediction?.[0]?.end === 'encounter') target = this.prediction[0].tEnd + 5;
+    else if (what === 'soi' && seg && (seg.end === 'encounter' || seg.end === 'soi-exit')) target = seg.tEnd + 5;
     if (target === null || target <= this.t + 5) {
       this.message('Niente da raggiungere con il warp', 'info', 2);
       return;
     }
     this.warpTarget = target;
-    this.changeWarp({ level: 100000 });
+    const span = target - this.t;
+    const level = WARP_LEVELS.slice().reverse().find((w) => span / w > 4) || 100;
+    this.changeWarp({ level: Math.max(100, level) });
     if (!this.onRails) this.warpTarget = null;
   }
 
@@ -817,49 +896,53 @@ export class Simulation {
     const dt = Math.min(dtReal, 0.1);
     this.timeSinceStart += dt;
     if (this.ship.destroyed) {
-      this.updateDebris(dt);
+      this.t += dt;
       this.updateObjects();
+      this.updateDebris(dt);
       return;
     }
     if (this.onRails) this.railsStep(dt * this.timeWarp);
     else {
+      if (this.anchor) this.anchor = null;
       const total = dt * this.timeWarp;
-      const n = Math.min(80, Math.max(1, Math.round(total / DT)));
+      const n = Math.min(100, Math.max(1, Math.round(total / DT)));
       const h = total / n;
       for (let i = 0; i < n; i++) {
         this.physicsStep(h);
         if (this.ship.destroyed) break;
       }
     }
+    this.updateSun();
     this.updateDebris(dt * this.timeWarp);
     this._predTimer -= dt;
     if (this._predTimer <= 0) this.refreshPrediction();
     this.updateInfo();
-    // Messages expire in real time.
-    for (const m of this.messages) m.age = (m.age || 0) + dt;
+  }
+
+  updateSun() {
+    const abs = this.absolute(this.ship.ref, this.ship.pos);
+    this.sunDir.copy(abs).scale(-1).normalize();
   }
 
   updateAltitude() {
     const s = this.ship;
     const body = this.body;
     s.altitude = s.pos.len() - body.radius;
-    const up = s.pos.clone().normalize();
-    const gh = body.terrain.height(up.x, up.y, up.z);
+    const gh = this.heightAt(s.ref, s.pos);
     s.agl = s.altitude - (body.ocean ? Math.max(0, gh) : gh);
   }
 
   updateObjects() {
     for (const o of this.objects) {
-      if (!o.dynamic) this.objectState(o, this.t, o.pos, o.vel);
+      this.objectState(o, this.t, o.pos, o.vel);
       if (o.omega) {
-        o.q.integrate(o.omega, 0); // attitude evolves analytically below
-        const ang = o.omega.len() * (this.t - o.t0);
-        if (ang > 0) {
-          const ax = o.omega.clone().scale(1 / o.omega.len());
+        o.qBase = o.qBase || o.q.clone();
+        const w = o.omega.len();
+        const ang = w * (this.t - o.t0);
+        if (w > 0) {
+          const ax = o.omega.clone().scale(1 / w);
           const half = ang / 2;
-          const qs = new Quat(Math.cos(half), ax.x * Math.sin(half), ax.y * Math.sin(half), ax.z * Math.sin(half));
-          o.qBase = o.qBase || o.q.clone();
-          o.q.copy(mulQ(o.qBase, qs));
+          o.q.copy(mulQ(o.qBase, new Quat(Math.cos(half), ax.x * Math.sin(half), ax.y * Math.sin(half), ax.z * Math.sin(half))));
         }
       }
     }
@@ -875,29 +958,24 @@ export class Simulation {
   }
 
   /** Pilot + assists → ship commands for one physics step. */
-  applyControls(stepDt) {
+  applyControls() {
     const s = this.ship;
     const p = this.pilot;
     const rotIn = new V3(p.roll, p.pitch, p.yaw);
     const transIn = new V3(p.tx, p.ty, p.tz);
-    // Attitude target from the SAS mode.
     let target = null;
     let throttle = p.throttle;
-    const asc = this.ascent ? this.ascentGuidance(stepDt) : null;
+    const asc = this.ascent ? this.ascentGuidance() : null;
     if (asc) {
       target = { dir: asc.dir, up: asc.up };
       throttle = asc.throttle;
     } else if (this.sas.on && this.sas.mode !== 'stab') target = this.attitudeTarget(this.sas.mode);
     s.cmd.rot.copy(rotationCommand(s, rotIn, this.sas, target));
     s.cmd.trans.copy(transIn);
-    // Velocity nulling / flight assist.
     const refState = this.assistReference();
-    if (p.killVel) {
-      if (refState) {
-        const rel = s.vel.clone().sub(refState.vel);
-        const kv = killVelocityCommand(s, rel, refState.keepRadial ? s.pos.clone().normalize() : null);
-        s.cmd.trans.add(kv);
-      }
+    if (p.killVel && refState) {
+      const rel = s.vel.clone().sub(refState.vel);
+      s.cmd.trans.add(killVelocityCommand(s, rel, refState.keepRadial ? s.pos.clone().normalize() : null));
     }
     if (this.fa && s.def.flightAssist && refState && !refState.keepRadial) {
       const rel = s.vel.clone().sub(refState.vel);
@@ -908,19 +986,20 @@ export class Simulation {
     if (this.vsHold && !asc) {
       const up = s.pos.clone().normalize();
       const g = this.body.mu / s.pos.lenSq();
-      throttle = verticalSpeedThrottle(s, p.throttle, up, g, s.vel.dot(up));
+      const ground = new V3().crossVectors(bodySpin(s.ref, this.t), s.pos);
+      throttle = verticalSpeedThrottle(s, p.throttle, up, g, s.vel.clone().sub(ground).dot(up));
     }
-    // Maneuver autopilot.
     if (this.autoBurn && this.node) {
       const ni = this.nodeInfo();
       throttle = 0;
-      const start = this.node.t - ni.burnTime / 2;
+      const start = this.node.t - (Number.isFinite(ni.burnTime) ? ni.burnTime : 0) / 2;
       const err = Math.acos(clamp(s.forward(new V3()).dot(ni.dir), -1, 1));
       if (this.t >= start && ni.remaining > 0.05 && err < 0.09) {
         const acc = s.maxAccel();
         throttle = acc > 0 ? clamp(ni.remaining / (acc * 1.2), 0.02, 1) * clamp(1.6 - err * 12, 0, 1) : 0;
       }
     }
+    s.brakes = p.brake || s.brakes;
     s.throttle = clamp(throttle, 0, 1);
   }
 
@@ -932,7 +1011,6 @@ export class Simulation {
       const rs = this.relToShipRef(t.object);
       if (rs.pos.clone().sub(s.pos).len() < 200e3) return { vel: rs.vel };
     }
-    // Nearest object within 30 km.
     let best = null, bd = 30e3;
     for (const o of this.objects) {
       if (o.ref !== s.ref) continue;
@@ -943,7 +1021,7 @@ export class Simulation {
       }
     }
     if (best) return { vel: best.vel.clone() };
-    if (s.agl < 30e3) return { vel: new V3(), keepRadial: true };
+    if (s.agl < 30e3) return { vel: new V3().crossVectors(bodySpin(s.ref, this.t), s.pos), keepRadial: true };
     return null;
   }
 
@@ -952,10 +1030,11 @@ export class Simulation {
     const up = s.pos.clone().normalize();
     const ts = this.targetState();
     let vRef = s.vel.clone();
-    // Near a target the velocity markers are relative to it.
-    if (ts && ts.pos.clone().sub(s.pos).len() < 50e3 && this.target.kind === 'object') vRef = s.vel.clone().sub(ts.vel);
+    // Close to a target the velocity markers are relative to it; low over a body, to the ground.
+    if (ts && this.target.kind === 'object' && ts.pos.clone().sub(s.pos).len() < 50e3) vRef = s.vel.clone().sub(ts.vel);
+    else if (s.agl < 30e3) vRef = s.vel.clone().sub(new V3().crossVectors(bodySpin(s.ref, this.t), s.pos));
     if (vRef.len() < 0.05 && ['prograde', 'retrograde'].includes(mode)) return null;
-    const { pro, nor, rad } = orbitalFrame(s.pos, s.vel);
+    const { nor, rad } = orbitalFrame(s.pos, s.vel);
     switch (mode) {
       case 'prograde': return { dir: vRef.normalize() };
       case 'retrograde': return { dir: vRef.normalize().scale(-1) };
@@ -964,10 +1043,8 @@ export class Simulation {
       case 'radialOut': return { dir: rad };
       case 'radialIn': return { dir: rad.scale(-1) };
       case 'up': return { dir: up };
-      case 'target':
-        return ts ? { dir: ts.pos.clone().sub(s.pos).normalize() } : null;
-      case 'antiTarget':
-        return ts ? { dir: ts.pos.clone().sub(s.pos).normalize().scale(-1) } : null;
+      case 'target': return ts ? { dir: ts.pos.clone().sub(s.pos).normalize() } : null;
+      case 'antiTarget': return ts ? { dir: ts.pos.clone().sub(s.pos).normalize().scale(-1) } : null;
       case 'port': {
         const tp = this.targetPort();
         return tp ? { dir: tp.dir.clone().scale(-1), up: tp.up } : null;
@@ -990,31 +1067,34 @@ export class Simulation {
       this.followDock();
       return;
     }
-    this.applyControls(h);
-    const body = this.body;
-    const sunlit = this.sunlit();
-    const evs = s.step(h, { body, gravity: this.gravityFn(s.ref), time: this.t, settings: this.settings, sunlit });
+    this.applyControls();
+    const ref = s.ref;
+    const t = this.t;
+    const env = {
+      body: this.body,
+      gravity: this.gravityFn(ref),
+      height: (p) => this.heightAt(ref, p),
+      spin: bodySpin(ref, t),
+      time: t,
+      settings: this.settings,
+      sunlit: this._sunlit !== false,
+    };
+    const evs = s.step(h, env);
     for (const e of evs) this.handleShipEvent(e);
     if (this.settings.crashes === false && s.destroyed) this.reviveAfterCrash();
-    // Burn bookkeeping for the node.
     if (this.node && s.engineOn) {
       this.nodeInfo();
-      if (!this.node.accum && this.t > this.node.t - 600) this.node.accum = new V3();
+      if (!this.node.accum && this.t > this.node.t - 3600) this.node.accum = new V3();
       if (this.node.accum) {
-        const thrustAcc = s.forward(new V3()).scale(s.thrust / s.mass);
-        this.node.accum.addScaled(thrustAcc, h);
-        const n2 = this.nodeInfo();
-        if (n2.remaining <= 0.05) this.finishBurn();
+        this.node.accum.addScaled(s.forward(new V3()).scale(s.thrust / s.mass), h);
+        if (this.nodeInfo().remaining <= 0.05) this.finishBurn();
       }
     }
     this.collide();
     this.checkDocking();
     this.checkSoi();
-    // Altitude callouts near the surface.
-    if (!s.landed && s.agl < 1200 && s.vel.dot(s.pos.clone().normalize()) < -0.3) {
-      for (const v of [1000, 500, 200, 100, 50, 20, 10, 5]) {
-        if (this._lastAgl > v && s.agl <= v) this.emit({ type: 'callout', value: v });
-      }
+    if (!s.landed && s.agl < 1200 && s.vel.clone().sub(new V3().crossVectors(env.spin, s.pos)).dot(s.pos.clone().normalize()) < -0.3) {
+      for (const v of [1000, 500, 200, 100, 50, 20, 10, 5]) if (this._lastAgl > v && s.agl <= v) this.emit({ type: 'callout', value: v });
     }
     this._lastAgl = s.agl;
   }
@@ -1054,7 +1134,6 @@ export class Simulation {
     this.emit(e);
   }
 
-  /** "Crashes off": reset the ship to a safe state instead of ending the flight. */
   reviveAfterCrash() {
     const s = this.ship;
     s.destroyed = null;
@@ -1063,17 +1142,21 @@ export class Simulation {
     this.message('Danni disattivati: il veicolo è stato ripristinato', 'warn', 4);
   }
 
+  /** Is the ship lit by the Sun (cylindrical shadows of the nearby bodies)? */
   sunlit() {
-    // Cylindrical shadow of the reference body (and Ausonia when around Lucina).
     const s = this.ship;
     const abs = this.absolute(s.ref, s.pos);
-    for (const b of Object.values(BODIES)) {
-      const bp = this.bodyPos(b.id);
-      const rel = abs.clone().sub(bp);
-      const along = rel.dot(this.sunDir);
+    const sun = abs.clone().scale(-1).normalize();
+    const ids = new Set([s.ref, ...childrenOf(s.ref).map((c) => c.id)]);
+    const parent = BODIES[s.ref].parent;
+    if (parent && parent !== 'sun') ids.add(parent);
+    for (const id of ids) {
+      if (id === 'sun') continue;
+      const b = BODIES[id];
+      const rel = abs.clone().sub(this.bodyPos(id));
+      const along = rel.dot(sun);
       if (along > 0) continue;
-      const perp = rel.addScaled(this.sunDir, -along).len();
-      if (perp < b.radius) return false;
+      if (rel.addScaled(sun, -along).len() < b.radius) return false;
     }
     return true;
   }
@@ -1081,7 +1164,6 @@ export class Simulation {
   // ------------------------------------------------------------------ rails warp
   railsStep(dtw) {
     const s = this.ship;
-    // Stop before events.
     let stopAt = Infinity, why = '';
     if (this.warpTarget) {
       stopAt = this.warpTarget;
@@ -1089,7 +1171,7 @@ export class Simulation {
     }
     if (this.node && this.settings.autoWarpStop) {
       const ni = this.nodeInfo();
-      const t0 = this.node.t - (ni.burnTime || 0) / 2 - 15;
+      const t0 = this.node.t - (Number.isFinite(ni.burnTime) ? ni.burnTime : 0) / 2 - 20;
       if (t0 > this.t && t0 < stopAt) {
         stopAt = t0;
         why = 'manovra in arrivo';
@@ -1097,7 +1179,7 @@ export class Simulation {
     }
     const seg = this.prediction?.[0];
     if (seg && seg.end !== 'none' && seg.tEnd > this.t && !this.docked && !s.landed) {
-      const lead = seg.end === 'atmosphere' || seg.end === 'impact' ? 20 : 0;
+      const lead = seg.end === 'atmosphere' || seg.end === 'impact' ? 30 : 0;
       if (seg.tEnd - lead < stopAt) {
         stopAt = seg.tEnd - lead;
         why = seg.end;
@@ -1111,9 +1193,17 @@ export class Simulation {
         this.updateObjects();
         this.followDock();
       } else if (s.landed) {
+        // Landed: the vehicle turns with the body.
+        if (!this.anchor) {
+          const q = bodyOrientation(s.ref, this.t);
+          this.anchor = { pos: q.rotateInv(s.pos, new V3()), q: mulQ(conjQ(q), s.q) };
+        }
         this.t = tEnd;
         this.updateObjects();
-        s.vel.set(0, 0, 0);
+        const q = bodyOrientation(s.ref, this.t);
+        s.pos.copy(q.rotate(this.anchor.pos, new V3()));
+        s.q.copy(mulQ(q, this.anchor.q));
+        s.vel.copy(new V3().crossVectors(bodySpin(s.ref, this.t), s.pos));
       } else {
         const r = new V3(), v = new V3();
         if (propagate(s.pos, s.vel, step, this.body.mu, r, v)) {
@@ -1124,7 +1214,6 @@ export class Simulation {
         this.flightTime += step;
         this.updateObjects();
         this.updateAltitude();
-        if (seg?.end === 'encounter' || seg?.end === 'soi-exit') this.checkSoi();
       }
     }
     if (tEnd >= stopAt - 1e-6) {
@@ -1145,42 +1234,49 @@ export class Simulation {
     }
   }
 
+  /** Patched conics: leave the current sphere of influence or enter a child's. */
   checkSoi(force = false) {
     const s = this.ship;
-    const L = lucinaState(this.t, this.lucinaPhase);
-    if (s.ref === 'ausonia') {
-      const d = s.pos.clone().sub(L.pos).len();
-      if (d < LUCINA.soi || (force && d < LUCINA.soi * 1.01)) {
-        s.pos.sub(L.pos);
-        s.vel.sub(L.vel);
-        s.ref = 'lucina';
-        this.emit({ type: 'soi', ref: 'lucina' });
-        this.message('Ingresso nella sfera di influenza di Lucina', 'info', 4);
+    const body = BODIES[s.ref];
+    if (body.parent && s.pos.len() > body.soi * (force ? 0.995 : 1)) {
+      const r = relativeState(s.ref, body.parent, this.t);
+      s.pos.add(r.pos);
+      s.vel.add(r.vel);
+      const from = s.ref;
+      s.ref = body.parent;
+      this._soiFrom = from;
+      this.emit({ type: 'soi', ref: s.ref, from });
+      this.message(`Uscita dalla sfera di influenza di ${BODIES[from].name}: ora orbiti attorno a ${BODIES[s.ref].name === 'Sole' ? 'al Sole' : BODIES[s.ref].name}`, 'info', 5);
+      this.refreshPrediction(true);
+      return;
+    }
+    for (const c of childrenOf(s.ref)) {
+      const r = relativeState(c.id, s.ref, this.t);
+      const d = s.pos.clone().sub(r.pos).len();
+      if (d < c.soi * (force ? 1.005 : 1) && c.id !== this._soiFromLock) {
+        s.pos.sub(r.pos);
+        s.vel.sub(r.vel);
+        s.ref = c.id;
+        this.emit({ type: 'soi', ref: c.id });
+        this.message(`Ingresso nella sfera di influenza di ${c.name}`, 'info', 5);
         this.refreshPrediction(true);
-      }
-    } else if (s.ref === 'lucina') {
-      if (s.pos.len() > LUCINA.soi || (force && s.pos.len() > LUCINA.soi * 0.99)) {
-        s.pos.add(L.pos);
-        s.vel.add(L.vel);
-        s.ref = 'ausonia';
-        this.emit({ type: 'soi', ref: 'ausonia' });
-        this.message('Uscita dalla sfera di influenza di Lucina', 'info', 4);
-        this.refreshPrediction(true);
+        return;
       }
     }
   }
 
   refreshPrediction(now = false) {
     if (!this.ship) return;
-    this._predTimer = now ? 0.15 : 0.5;
+    this._predTimer = now ? 0.15 : 0.6;
     const s = this.ship;
     try {
-      this.prediction = s.landed || this.docked && false ? null : M.predict(s.ref, s.pos, s.vel, this.t, this.lucinaPhase);
-      this.nodePrediction = this.node ? M.predictWithNode(s.ref, s.pos, s.vel, this.t, this.node, this.lucinaPhase) : null;
+      this._sunlit = this.sunlit();
+      this.prediction = s.landed ? null : M.predict(s.ref, s.pos, s.vel, this.t);
+      this.nodePrediction = this.node ? M.predictWithNode(s.ref, s.pos, s.vel, this.t, this.node) : null;
       const tgt = this.target?.kind === 'object' ? this.target.object : null;
-      if (tgt && tgt.ref === s.ref && !this.docked) {
+      if (tgt && tgt.ref === s.ref && !this.docked && !s.landed) {
         const el = this.prediction?.[0]?.el;
-        const span = el && el.e < 1 ? el.period : 20000;
+        const span = el && el.e < 1 ? Math.min(el.period, 6 * 86400) : 20000;
         const base = this.nodePrediction?.[0];
         this.approach = base
           ? M.closestApproach(s.ref, base.pos, base.vel, base.t0, (tt) => this.objectState(tgt, tt), span)
@@ -1305,7 +1401,7 @@ export class Simulation {
           const wc = o.q.rotate(c, new V3()).add(o.pos);
           this.collideSphere(wc, a.radius * 0.95, o.vel, `un asteroide dello ${o.name}`);
         }
-        if (o.def.outpost) this.collideShapes(o, OUTPOST_SHAPES);
+        if (o.def.wreck) this.collideShapes(o, OUTPOST_SHAPES);
       } else this.collideShapes(o, o.def);
     }
   }
@@ -1400,7 +1496,6 @@ export class Simulation {
   // ------------------------------------------------------------------ debris
   spawnDebris(stage) {
     const s = this.ship;
-    // The dropped stage centre in world coordinates (old stack, before the shift).
     const offset = s.q.rotate(new V3(stage.x - s.com, 0, 0), new V3());
     const fwd = s.forward(new V3());
     this.debris.push({
@@ -1419,43 +1514,51 @@ export class Simulation {
   updateDebris(dt) {
     for (const d of this.debris) {
       d.age += dt;
-      if (d.resting) continue;
       const body = BODIES[d.ref];
-      const g = this.gravityFn(d.ref)(d.pos, new V3());
-      const up = d.pos.clone().normalize();
-      const alt = d.pos.len() - body.radius;
-      const atm = atmosphereAt(body, alt);
-      if (atm.rho > 0) {
-        const sp = d.vel.len();
-        g.addScaled(d.vel, (-0.5 * atm.rho * sp * 1.0 * d.stage.radius * d.stage.length * 0.6) / (d.stage.dryMass + d.stage.fuelLeft));
+      if (d.resting) {
+        // Resting stages turn with the ground.
+        const q = bodyOrientation(d.ref, this.t);
+        d.pos.copy(q.rotate(d.fixedPos, new V3()));
+        d.q.copy(mulQ(q, d.fixedQ));
+        continue;
       }
-      // Sub-step large warp intervals for stability.
-      const n = Math.min(200, Math.max(1, Math.ceil(dt / 0.05)));
+      const n = Math.min(400, Math.max(1, Math.ceil(dt / 0.05)));
       const h = dt / n;
+      const g = this.gravityFn(d.ref);
+      const spin = bodySpin(d.ref, this.t);
+      const m = d.stage.dryMass + d.stage.fuelLeft;
       for (let i = 0; i < n; i++) {
-        const gi = this.gravityFn(d.ref)(d.pos, new V3());
-        if (atm.rho > 0) gi.add(g.clone().sub(this.gravityFn(d.ref)(d.pos, new V3())));
-        d.vel.addScaled(gi, h);
+        const acc = g(d.pos, new V3());
+        const alt = d.pos.len() - body.radius;
+        const atm = atmosphereAt(body, alt);
+        if (atm.rho > 0) {
+          const air = d.vel.clone().sub(new V3().crossVectors(spin, d.pos));
+          const sp = air.len();
+          acc.addScaled(air, (-0.5 * atm.rho * sp * d.stage.radius * d.stage.length * 0.6) / m);
+        }
+        d.vel.addScaled(acc, h);
         d.pos.addScaled(d.vel, h);
       }
       d.q.integrate(d.omega, dt);
-      const gh = body.terrain.height(up.x, up.y, up.z);
+      const gh = this.heightAt(d.ref, d.pos);
       const surf = body.radius + Math.max(gh, body.ocean ? -2 : -1e9);
       if (d.pos.len() < surf + d.stage.radius * 0.6) {
+        const up = d.pos.clone().normalize();
         d.pos.copy(up).scale(surf + d.stage.radius * 0.6);
-        d.vel.set(0, 0, 0);
-        d.omega.set(0, 0, 0);
         d.resting = true;
         d.sunk = body.ocean && gh < 0;
+        const q = bodyOrientation(d.ref, this.t);
+        d.fixedPos = q.rotateInv(d.pos, new V3());
+        d.fixedQ = mulQ(conjQ(q), d.q);
+        d.vel.set(0, 0, 0);
       }
     }
-    // Remove distant debris (but keep stages resting on Lucina).
     const ship = this.ship;
     const abs = this.absolute(ship.ref, ship.pos);
     this.debris = this.debris.filter((d) => {
       if (d.sunk && d.age > 30) return false;
       const da = this.absolute(d.ref, d.pos).sub(abs).len();
-      return d.resting ? da < 300e3 : da < 400e3 && d.age < 3600;
+      return d.resting ? da < 300e3 : da < 800e3 && d.age < 6 * 3600;
     });
   }
 
@@ -1464,8 +1567,10 @@ export class Simulation {
     const s = this.ship;
     const body = this.body;
     const up = s.pos.clone().normalize();
-    const vs = s.vel.dot(up);
-    const hv = s.vel.clone().addScaled(up, -vs).len();
+    const spin = bodySpin(s.ref, this.t);
+    const ground = new V3().crossVectors(spin, s.pos);
+    const surf = s.vel.clone().sub(ground);
+    const vs = surf.dot(up);
     const el = elements(s.pos, s.vel, body.mu);
     const info = (this.info = this.info || {});
     info.ref = body.id;
@@ -1473,24 +1578,31 @@ export class Simulation {
     info.altitude = s.pos.len() - body.radius;
     info.agl = s.agl;
     info.vs = vs;
-    info.hspeed = hv;
+    info.hspeed = surf.clone().addScaled(up, -vs).len();
     info.speed = s.vel.len();
+    info.surfaceSpeed = surf.len();
     info.el = el;
     info.ap = el.e < 1 ? el.ra - body.radius : Infinity;
     info.pe = el.rp - body.radius;
-    info.inclination = (el.i * 180) / Math.PI;
+    // Inclination relative to the body's equator.
+    const eq = equatorFrame(s.ref, this.t);
+    info.inclination = (Math.acos(clamp(el.h.clone().normalize().dot(eq.z), -1, 1)) * 180) / Math.PI;
     info.period = el.period;
     info.timeToAp = el.timeToAp;
     info.timeToPe = el.timeToPe;
-    info.orbiting = el.e < 1 && info.pe > (body.atmosphere ? body.atmosphere.height : body.terrain.maxHeight);
+    const floor = body.atmosphere ? Math.min(body.atmosphere.height, 100e3) : (body.terrain?.maxHeight || 0) * 0.6;
+    info.orbiting = el.e < 1 && info.pe > floor;
     info.gravity = body.mu / s.pos.lenSq();
     info.twr = s.engineStage ? s.engineStage.engine.thrustVac / (s.mass * info.gravity) : 0;
     info.deltaV = s.deltaV();
-    info.sunlit = this.sunlit();
+    info.sunlit = this._sunlit !== false;
+    // Latitude / longitude under the ship.
+    const f = toFixed(s.ref, this.t, s.pos);
+    info.lat = (Math.asin(clamp(f.z / (f.len() || 1), -1, 1)) * 180) / Math.PI;
+    info.lon = (Math.atan2(f.y, f.x) * 180) / Math.PI;
     const ab = this.absolute(s.ref, s.pos);
-    if (this.lastShipAbs) this.distanceTravelled += Math.min(1e6, ab.clone().sub(this.lastShipAbs).len());
+    if (this.lastShipAbs) this.distanceTravelled += Math.min(1e9, ab.clone().sub(this.lastShipAbs).len());
     this.lastShipAbs = ab;
-    // Target
     const ts = this.targetState();
     if (ts) {
       const rel = ts.pos.clone().sub(s.pos);
@@ -1519,7 +1631,6 @@ export class Simulation {
           vx: vrel.dot(right),
           vy: vrel.dot(tp.up),
           closing: -vrel.dot(tp.dir),
-          // Angular errors of the ship axis relative to the port axis (deg).
           yawErr: (Math.atan2(sd.dot(right), -sd.dot(tp.dir)) * 180) / Math.PI,
           pitchErr: (Math.atan2(sd.dot(tp.up), -sd.dot(tp.dir)) * 180) / Math.PI,
           rollErr: (Math.atan2(sUp.dot(right), sUp.dot(tp.up)) * 180) / Math.PI,
@@ -1561,10 +1672,10 @@ export function fmtTime(s) {
   return (neg ? '−' : '') + txt;
 }
 
-/** Collision volumes of the mining outpost at the swarm centre (swarm frame). */
+/** Collision volumes of the wrecked satellite at the centre of the debris field. */
 export const OUTPOST_SHAPES = {
-  capsules: [[0, 0, -14, 0, 0, 12.5, 4.5], [-16, 0, 0, 16, 0, 0, 2.2]],
-  boxes: [[0, 0, -22, 9, 9, 6]],
+  capsules: [[-4, 0, 0, 4, 0, 0, 1.8]],
+  boxes: [[0, 0, 0, 1.2, 7, 0.2]],
 };
 
 export { G0, SAS_MODES };

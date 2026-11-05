@@ -6,8 +6,6 @@ import { V3, Quat, clamp, G0 } from '../core/math.js';
 import { atmosphereAt } from './system.js';
 
 const SIGMA = 5.670e-8;
-// Ausonia is small and orbital speeds are low: heating is scaled so re-entry stays demanding.
-const HEAT_GAIN = 2.6;
 const tmpA = new V3(), tmpB = new V3(), tmpC = new V3(), tmpD = new V3();
 
 /** Torque turning body x towards the body-frame unit direction (tx, ty, tz), gain k. */
@@ -29,7 +27,7 @@ export class Spacecraft {
     this.vel = new V3();
     this.q = new Quat();
     this.omega = new V3(); // body rates rad/s (x roll, y pitch, z yaw)
-    this.ref = 'ausonia';
+    this.ref = 'earth';
     this.stageIndex = 0;
     this.stages = def.stages.map((s) => ({ ...s, fuelLeft: s.fuel }));
     this.mono = def.rcs.fuel;
@@ -107,7 +105,7 @@ export class Spacecraft {
       ix += 0.5 * sm * s.radius * s.radius;
       iy += sm * ((3 * s.radius * s.radius + s.length * s.length) / 12 + (s.x - com) ** 2);
     }
-    if (this.def.id === 'interceptor') {
+    if (this.def.id === 'spaceplane') {
       // Wide wings: much more roll inertia than a cylinder.
       ix *= 6;
       iy *= 1.1;
@@ -164,7 +162,7 @@ export class Spacecraft {
     const pts = [];
     if (this.legsDeployed) for (const s of rest) for (const l of s.legs || []) pts.push({ p: l.pos, r: l.radius, leg: l });
     const gear = this.def.gearContacts && this.legsDeployed;
-    for (const c of this.def.contacts) if (c[0] >= minX) pts.push({ p: c, r: c[3], leg: gear ? { stroke: 0.45 } : null });
+    for (const c of this.def.contacts) if (c[0] >= minX) pts.push({ p: c, r: c[3], leg: gear ? { stroke: 0.45, wheel: !!this.def.rollingGear } : null });
     for (const c of this.def.hull) if (c[0] - c[3] >= minX) pts.push({ p: c, r: c[3] * 0.92, leg: null });
     pts.forEach((p, i) => (p.key = i));
     this._cpKey = key;
@@ -189,8 +187,9 @@ export class Spacecraft {
     const def = this.def;
     const body = env.body;
     const r = this.pos.len();
-    const up = tmpA.copy(this.pos).scale(1 / r);
-    const groundH = body.terrain.height(up.x, up.y, up.z);
+    // Terrain height in the rotating body frame; ground and air move with the body.
+    const groundH = env.height(this.pos);
+    const spin = env.spin;
     const surfaceR = body.radius + Math.max(groundH, body.ocean ? 0 : -1e9);
     this.altitude = r - body.radius;
     this.agl = r - surfaceR;
@@ -255,7 +254,9 @@ export class Spacecraft {
     if (monoUse > 0 && !env.settings?.unlimitedFuel) this.mono = Math.max(0, this.mono - (monoUse / (rcs.isp * G0)) * dt);
 
     // ---------------------------------------------------------- aerodynamics & heating
-    const vAir = this.vel; // the atmosphere is at rest in the (non-rotating) body frame
+    // The atmosphere co-rotates with the body: airspeed is relative to the rotating air.
+    const vAir = this.vel.clone().sub(new V3().crossVectors(spin, this.pos));
+    this.airspeed = vAir.len();
     const speed = vAir.len();
     const q = 0.5 * atm.rho * speed * speed;
     this.dynPressure = q;
@@ -275,7 +276,7 @@ export class Spacecraft {
         // Lines pull the capsule apex (+x) into the direction opposite to the motion.
         alignTorque(torque, -vb.x, -vb.y, -vb.z, q * 60 * open);
         dampTorque(torque, this.omega, q * 60 * open * 0.6);
-        if (q > 9000 * Math.max(0.3, open)) {
+        if (q > 42000) {
           this.parachute = -1;
           events.push({ type: 'chute-torn' });
         }
@@ -318,8 +319,10 @@ export class Spacecraft {
         dampTorque(torque, this.omega, k * 0.7);
       }
       // Sutton-Graves convective heating at the stagnation point, W/m².
-      const flux = HEAT_GAIN * 1.7415e-4 * Math.sqrt(atm.rho / def.heat.noseRadius) * speed * speed * speed;
-      const shield = this.heatShieldStage && -vb.x > 0.82;
+      const flux = 1.7415e-4 * Math.sqrt(atm.rho / def.heat.noseRadius) * speed * speed * speed;
+      // Heat shield facing the flow: aft shield for capsules, belly tiles for spaceplanes.
+      const ax = def.heat.shieldAxis || [-1, 0, 0];
+      const shield = this.heatShieldStage && vb.x * ax[0] + vb.y * ax[1] + vb.z * ax[2] > (def.heat.shieldCos ?? 0.82);
       this.shieldFacing = !!shield;
       heatIn = flux * (shield ? 0.55 : 1);
       this.heatFlux = flux;
@@ -353,7 +356,7 @@ export class Spacecraft {
         const wp = new V3().copy(this.pos).add(rw);
         const wr = wp.len();
         const n = new V3().copy(wp).scale(1 / wr);
-        const gh = body.terrain.height(n.x, n.y, n.z);
+        const gh = env.height(wp);
         const water = body.ocean && gh < 0;
         const surf = body.radius + (water ? 0 : gh);
         const pen = surf - (wr - c.r);
@@ -361,7 +364,8 @@ export class Spacecraft {
         this.contacts++;
         touching.add(c.key);
         if (!water && !c.leg) this.hullTouch = true;
-        const wv = this.q.rotate(new V3().crossVectors(this.omega, rb), new V3()).add(this.vel);
+        // Contact point velocity relative to the (rotating) ground.
+        const wv = this.q.rotate(new V3().crossVectors(this.omega, rb), new V3()).add(this.vel).sub(new V3().crossVectors(spin, wp));
         const vn = wv.dot(n);
         const fresh = !this._touching.has(c.key);
         let k, damp, mu;
@@ -391,10 +395,22 @@ export class Spacecraft {
         }
         const fn = Math.max(0, k * pen - damp * vn);
         const f = new V3().copy(n).scale(fn);
-        // Friction opposes the tangential velocity (regularised near zero).
+        // Friction opposes the tangential velocity (regularised near zero). Wheels roll
+        // along the body x axis: low rolling resistance, brakes, strong side grip.
         const vt = new V3().copy(wv).addScaled(n, -vn);
-        const vtl = vt.len();
-        if (vtl > 1e-5) f.addScaled(vt, (-mu * fn * Math.min(1, vtl / 0.04)) / vtl);
+        if (c.leg?.wheel && !water) {
+          const fx = this.q.rotate(new V3(1, 0, 0), new V3());
+          fx.addScaled(n, -fx.dot(n)).normalize();
+          const vlong = vt.dot(fx);
+          const vlat = vt.clone().addScaled(fx, -vlong);
+          const muLong = this.brakes ? 0.45 : 0.015;
+          f.addScaled(fx, -Math.sign(vlong) * muLong * fn * Math.min(1, Math.abs(vlong) / 0.3));
+          const ll = vlat.len();
+          if (ll > 1e-5) f.addScaled(vlat, (-0.7 * fn * Math.min(1, ll / 0.08)) / ll);
+        } else {
+          const vtl = vt.len();
+          if (vtl > 1e-5) f.addScaled(vt, (-mu * fn * Math.min(1, vtl / 0.04)) / vtl);
+        }
         if (water) f.addScaled(vt, -m * 0.3);
         force.add(f);
         const fb = this.q.rotateInv(f, new V3());
@@ -434,7 +450,8 @@ export class Spacecraft {
     const gNow = force.len() / this.mass / G0;
     this.gForce = gNow;
     if (gNow > this.maxG) this.maxG = gNow;
-    const resting = this.contacts >= 3 && this.vel.len() < 0.25 && this.omega.len() < 0.05;
+    const groundVel = new V3().crossVectors(spin, this.pos);
+    const resting = this.contacts >= 3 && this.vel.clone().sub(groundVel).len() < 0.25 && this.omega.len() < 0.05;
     if (resting !== this.landed) {
       this.landed = resting;
       if (resting) events.push({ type: 'landed', water: this.splashed });
@@ -499,7 +516,7 @@ export class Spacecraft {
   deployParachute(env) {
     const chute = this.stage.parachute;
     if (!chute || this.parachute !== 0) return { ok: false, reason: chute ? 'Paracadute già usato' : 'Nessun paracadute' };
-    const speed = this.vel.len();
+    const speed = this.airspeed ?? this.vel.len();
     if (this.altitude > chute.maxAltitude || !env.body.atmosphere) return { ok: false, reason: `Troppo in alto: il paracadute si apre sotto i ${Math.round(chute.maxAltitude / 1000)} km` };
     this.parachute = 0.02;
     if (speed > chute.maxSpeed) {

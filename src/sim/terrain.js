@@ -1,7 +1,8 @@
-// Deterministic surface models of the two worlds. Input is a unit direction (x, y, z) in the
-// body frame (z = north pole); output is the height in metres above the reference radius.
-// Shared by the physics (landing legs, impacts, splashdown) and by the renderer, which builds
-// its terrain meshes from exactly the same function.
+// Surface models. Input: a unit direction in the body-fixed frame (x at longitude 0, y at
+// 90°E, z north). Output: height in metres above the reference sphere.
+// Earth, Moon and Mars use real global elevation maps (assets/planets, see
+// tools/make-planet-data.py) plus deterministic fine detail; the same functions feed the
+// physics (legs, impacts, splashdown) and the renderer's terrain meshes.
 import { Simplex3 } from '../core/noise.js';
 import { clamp, smoothstep, hash2 } from '../core/math.js';
 
@@ -20,83 +21,51 @@ export function latLonFromDir(x, y, z) {
   return { lat: (Math.asin(clamp(z / r, -1, 1)) * 180) / Math.PI, lon: (Math.atan2(y, x) * 180) / Math.PI };
 }
 
-/** Great-circle angle (radians) between two unit vectors. */
 function angle(ax, ay, az, b) {
-  const d = ax * b[0] + ay * b[1] + az * b[2];
-  return Math.acos(clamp(d, -1, 1));
+  return Math.acos(clamp(ax * b[0] + ay * b[1] + az * b[2], -1, 1));
 }
 
-/** Flattened circular area: `h` inside `inner` (rad), natural ground beyond `outer`. */
-function flatten(h, ax, ay, az, site, inner, outer) {
+/** Flattened circular area: `site.elev` inside `inner` (rad), natural ground beyond `outer`. */
+function flatten(h, ax, ay, az, site) {
   const a = angle(ax, ay, az, site.dir);
-  if (a >= outer) return h;
-  const t = smoothstep(inner, outer, a);
-  return site.elev + (h - site.elev) * t;
+  if (a >= site.blend) return h;
+  return site.elev + (h - site.elev) * smoothstep(site.flat, site.blend, a);
 }
 
-// ---------------------------------------------------------------- Ausonia (home planet)
-
-export class AusoniaTerrain {
-  constructor(sites = []) {
-    this.n = new Simplex3(1971);
-    this.m = new Simplex3(4242);
-    this.sites = sites;
-    this.radius = 800e3;
-    this.maxHeight = 4600;
-  }
-
-  /** Continent field: < 0 sea, > 0 land. */
-  continent(x, y, z) {
-    const n = this.n;
-    let c = n.fbm(x * 1.25 + 3.1, y * 1.25 - 1.7, z * 1.25 + 0.4, 5) * 1.1 + n.fbm(x * 4.1, y * 4.1, z * 4.1, 3) * 0.22 - 0.06;
-    // The spaceport stands on a coast: land under the pads, open sea to the east.
-    for (const s of this.sites) {
-      if (!s.land) continue;
-      const a = angle(x, y, z, s.dir);
-      if (a < s.land * 2.5) c += 0.35 * (1 - smoothstep(s.land * 0.6, s.land * 2.5, a));
-    }
-    return c;
-  }
-
-  height(x, y, z) {
-    const n = this.n;
-    const c = this.continent(x, y, z);
-    let h;
-    if (c < 0) {
-      // Continental shelf then abyssal plains.
-      h = -Math.min(4200, 260 * smoothstep(0, 0.04, -c) + 5200 * smoothstep(0.03, 0.45, -c)) + n.noise(x * 60, y * 60, z * 60) * 40 * smoothstep(0, 0.05, -c);
-    } else {
-      const inland = smoothstep(0, 0.32, c);
-      const mask = smoothstep(-0.05, 0.3, this.m.fbm(x * 2.3 + 7, y * 2.3, z * 2.3 - 2, 3));
-      const r = n.ridged(x * 5.5 + 11, y * 5.5, z * 5.5 - 5, 6);
-      const mountains = r * r * 4200 * mask * smoothstep(0.04, 0.3, c);
-      const hills = (n.fbm(x * 28, y * 28, z * 28, 4) * 0.5 + 0.5) * 260 * smoothstep(0, 0.08, c);
-      const detail = n.fbm(x * 420, y * 420, z * 420, 3) * 14 + n.noise(x * 3600, y * 3600, z * 3600) * 2.5;
-      h = 2 + inland * 520 + mountains + hills + detail * smoothstep(0, 0.02, c);
-    }
-    for (const s of this.sites) h = flatten(h, x, y, z, s, s.flat, s.blend);
-    return h;
-  }
-
-  /** Extra per-vertex data for the renderer: moisture (0 desert … 1 lush) and coast closeness. */
-  sample(x, y, z) {
-    const h = this.height(x, y, z);
-    const moisture = clamp(this.m.fbm(x * 3.4 - 4, y * 3.4 + 9, z * 3.4, 4) * 0.9 + 0.55 - Math.abs(z) * 0.15 + (Math.abs(z) < 0.35 ? 0 : 0.2), 0, 1);
-    return { h, moisture, maria: 0 };
-  }
+/** Bilinear sample of an equirectangular height map (Float32Array, metres). */
+function sampleMap(map, x, y, z) {
+  const lon = Math.atan2(y, x), lat = Math.asin(clamp(z, -1, 1));
+  const W = map.width, H = map.height;
+  const u = ((lon + Math.PI) / (2 * Math.PI)) * W - 0.5;
+  const v = ((Math.PI / 2 - lat) / Math.PI) * H - 0.5;
+  let x0 = Math.floor(u), y0 = Math.floor(v);
+  const fx = u - x0, fy = v - y0;
+  let x1 = x0 + 1, y1 = y0 + 1;
+  x0 = ((x0 % W) + W) % W;
+  x1 = ((x1 % W) + W) % W;
+  y0 = clamp(y0, 0, H - 1);
+  y1 = clamp(y1, 0, H - 1);
+  const d = map.data;
+  const a = d[y0 * W + x0], b = d[y0 * W + x1], c = d[y1 * W + x0], e = d[y1 * W + x1];
+  return (a + (b - a) * fx) * (1 - fy) + (c + (e - c) * fx) * fy;
 }
 
-// ---------------------------------------------------------------- Lucina (moon)
+/** Local relief of the map (difference with a wider neighbourhood), for detail amplitude. */
+function reliefAt(map, x, y, z) {
+  const h = sampleMap(map, x, y, z);
+  const k = 0.012;
+  const a = sampleMap(map, x + k, y, z), b = sampleMap(map, x - k, y, z), c = sampleMap(map, x, y + k, z), d = sampleMap(map, x, y - k, z);
+  return Math.abs(h - (a + b + c + d) / 4) + Math.abs(a - b) * 0.25 + Math.abs(c - d) * 0.25;
+}
 
 /**
- * Crater octave: one candidate crater per cell of a 3D lattice around the sphere. Only the
- * 2×2×2 cells nearest the point can hold a crater that reaches it (radius < half a cell).
+ * Crater octave: one candidate crater per cell of a 3D lattice around the sphere; only the
+ * 2×2×2 nearest cells can reach the point (crater radius < half a cell).
  */
-function craterOctave(px, py, pz, freq, density, seed, depthRatio) {
+function craterOctave(px, py, pz, freq, density, seed, depthRatio, radius) {
   const qx = px * freq, qy = py * freq, qz = pz * freq;
   const ix = Math.floor(qx), iy = Math.floor(qy), iz = Math.floor(qz);
-  const fx = qx - ix, fy = qy - iy, fz = qz - iz;
-  const ox = fx < 0.5 ? -1 : 1, oy = fy < 0.5 ? -1 : 1, oz = fz < 0.5 ? -1 : 1;
+  const ox = qx - ix < 0.5 ? -1 : 1, oy = qy - iy < 0.5 ? -1 : 1, oz = qz - iz < 0.5 ? -1 : 1;
   let h = 0;
   for (let a = 0; a < 2; a++) {
     const cx = ix + a * ox;
@@ -104,9 +73,7 @@ function craterOctave(px, py, pz, freq, density, seed, depthRatio) {
       const cy = iy + b * oy;
       for (let c = 0; c < 2; c++) {
         const cz = iz + c * oz;
-        const k = hash2(cx * 73 + cz * 7919, cy * 131 - cz * 31, seed);
-        if (k > density) continue;
-        // Feature point inside the cell, pulled onto the sphere of radius `freq`.
+        if (hash2(cx * 73 + cz * 7919, cy * 131 - cz * 31, seed) > density) continue;
         let ex = cx + hash2(cx, cy * 3 + cz, seed + 1);
         let ey = cy + hash2(cy, cz * 5 + cx, seed + 2);
         let ez = cz + hash2(cz, cx * 7 + cy, seed + 3);
@@ -114,12 +81,10 @@ function craterOctave(px, py, pz, freq, density, seed, depthRatio) {
         if (el < 1e-9) continue;
         const s = freq / el;
         ex *= s; ey *= s; ez *= s;
-        const radius = 0.12 + 0.33 * hash2(cx + 17, cy - 23, seed + 4);
-        const d = Math.hypot(qx - ex, qy - ey, qz - ez) / radius;
+        const rr = 0.12 + 0.33 * hash2(cx + 17, cy - 23, seed + 4);
+        const d = Math.hypot(qx - ex, qy - ey, qz - ez) / rr;
         if (d > 1.9) continue;
-        // Bowl, raised rim, ejecta. Depth relative to the crater radius in metres.
-        const rMetres = (radius / freq) * 240e3;
-        const depth = rMetres * depthRatio;
+        const depth = (rr / freq) * radius * depthRatio;
         let v = 0;
         if (d < 1) v += depth * Math.max(d * d - 1, -0.82);
         const w = (d - 1) / 0.28;
@@ -131,46 +96,147 @@ function craterOctave(px, py, pz, freq, density, seed, depthRatio) {
   return h;
 }
 
-const CRATER_OCTAVES = [
-  // freq (cells per radius), density, depth / radius
-  [7, 0.55, 0.08],
-  [15, 0.5, 0.1],
-  [32, 0.5, 0.13],
-  [70, 0.45, 0.16],
-  [150, 0.42, 0.18],
-  [330, 0.4, 0.2],
-  [720, 0.38, 0.2],
-  [1600, 0.35, 0.2],
-  [3500, 0.32, 0.18],
+/** Crater octaves by cell size in metres (the lattice frequency depends on the radius). */
+function craterSet(radius, cells) {
+  return cells.map(([cellKm, density, depth]) => [radius / (cellKm * 1000), density, depth]);
+}
+
+class MapTerrain {
+  constructor(sites, radius) {
+    this.sites = sites;
+    this.radius = radius;
+    this.map = null;
+  }
+
+  setHeightmap(map) {
+    this.map = map;
+    let mx = -Infinity;
+    for (let i = 0; i < map.data.length; i += 7) if (map.data[i] > mx) mx = map.data[i];
+    this.maxHeight = Math.max(this.maxHeight || 0, mx + 500);
+  }
+
+  base(x, y, z) {
+    return this.map ? sampleMap(this.map, x, y, z) : 0;
+  }
+
+  finish(h, x, y, z) {
+    for (const s of this.sites) h = flatten(h, x, y, z, s);
+    return h;
+  }
+}
+
+// ---------------------------------------------------------------- Earth
+
+export class EarthTerrain extends MapTerrain {
+  constructor(sites, radius) {
+    super(sites, radius);
+    this.n = new Simplex3(1971);
+    this.maxHeight = 8900;
+  }
+
+  height(x, y, z) {
+    const n = this.n;
+    let h = this.base(x, y, z);
+    // Fine relief below the 20 km resolution of the map, stronger in mountains, absent at
+    // the coast so that the real shorelines are kept.
+    const land = h > 0;
+    const coast = smoothstep(5, 120, Math.abs(h));
+    const rough = land ? clamp(0.15 + h / 2500, 0.15, 1.6) : 0.25;
+    const r = n.ridged(x * 900, y * 900, z * 900, 4);
+    h += coast * rough * ((r - 0.45) * 650 + n.fbm(x * 4200, y * 4200, z * 4200, 3) * 70);
+    h += coast * (n.noise(x * 30000, y * 30000, z * 30000) * 6 + n.noise(x * 120000, y * 120000, z * 120000) * 1.5) * (land ? 1 : 0);
+    if (land && h < 1) h = 1;
+    return this.finish(h, x, y, z);
+  }
+
+  /** Extra per-vertex data for the renderer. */
+  sample(x, y, z) {
+    return { h: this.height(x, y, z), moisture: 0, maria: 0 };
+  }
+}
+
+// ---------------------------------------------------------------- Moon
+
+const MOON_CRATERS = [
+  // cell (km), density, depth/radius
+  [60, 0.5, 0.12], [26, 0.5, 0.15], [11, 0.48, 0.17], [4.8, 0.45, 0.19], [2.1, 0.42, 0.2], [0.9, 0.4, 0.2], [0.38, 0.36, 0.19], [0.16, 0.32, 0.18], [0.07, 0.3, 0.16],
 ];
 
-export class LucinaTerrain {
-  constructor(sites = []) {
+export class MoonTerrain extends MapTerrain {
+  constructor(sites, radius) {
+    super(sites, radius);
     this.n = new Simplex3(808);
-    this.sites = sites;
-    this.radius = 240e3;
-    this.maxHeight = 3200;
+    this.maxHeight = 11000;
+    this.craters = craterSet(radius, MOON_CRATERS);
   }
 
-  maria(x, y, z) {
-    return smoothstep(0.08, 0.32, this.n.fbm(x * 1.4 + 5, y * 1.4 - 3, z * 1.4 + 1, 3));
-  }
-
-  height(x, y, z, octaves = CRATER_OCTAVES.length) {
+  height(x, y, z, octaves = this.craters.length) {
     const n = this.n;
-    const mare = this.maria(x, y, z);
-    let h = n.fbm(x * 3, y * 3, z * 3, 5) * 1100 * (1 - mare * 0.75) - mare * 1300 + n.fbm(x * 40, y * 40, z * 40, 3) * 90;
+    let h = this.base(x, y, z) + n.fbm(x * 260, y * 260, z * 260, 4) * 160;
     for (let i = 0; i < octaves; i++) {
-      const [freq, density, depth] = CRATER_OCTAVES[i];
-      // Maria are younger: fewer large craters.
-      h += craterOctave(x, y, z, freq, density * (i < 4 ? 1 - mare * 0.6 : 1), 31 + i * 17, depth);
+      const [freq, density, depth] = this.craters[i];
+      h += craterOctave(x, y, z, freq, density, 31 + i * 17, depth, this.radius);
     }
-    h += n.noise(x * 9000, y * 9000, z * 9000) * 0.6;
-    for (const s of this.sites) h = flatten(h, x, y, z, s, s.flat, s.blend);
+    h += n.noise(x * 60000, y * 60000, z * 60000) * 0.5;
+    return this.finish(h, x, y, z);
+  }
+
+  sample(x, y, z) {
+    return { h: this.height(x, y, z), moisture: 0, maria: 0 };
+  }
+}
+
+// ---------------------------------------------------------------- Mars
+
+const MARS_CRATERS = [[70, 0.45, 0.08], [30, 0.45, 0.1], [12, 0.42, 0.12], [5, 0.4, 0.13], [2, 0.36, 0.13], [0.8, 0.32, 0.12], [0.3, 0.28, 0.1]];
+
+export class MarsTerrain extends MapTerrain {
+  constructor(sites, radius) {
+    super(sites, radius);
+    this.n = new Simplex3(4040);
+    this.maxHeight = 23000;
+    this.craters = craterSet(radius, MARS_CRATERS);
+  }
+
+  height(x, y, z) {
+    const n = this.n;
+    let h = this.base(x, y, z);
+    h += (n.ridged(x * 500, y * 500, z * 500, 4) - 0.45) * 500 + n.fbm(x * 3000, y * 3000, z * 3000, 3) * 60;
+    for (let i = 0; i < this.craters.length; i++) {
+      const [freq, density, depth] = this.craters[i];
+      h += craterOctave(x, y, z, freq, density, 91 + i * 13, depth, this.radius);
+    }
+    h += n.noise(x * 50000, y * 50000, z * 50000) * 1.2;
+    return this.finish(h, x, y, z);
+  }
+
+  sample(x, y, z) {
+    return { h: this.height(x, y, z), moisture: 0, maria: 0 };
+  }
+}
+
+// ---------------------------------------------------------------- generic cratered body (Mercury)
+
+export class CrateredTerrain {
+  constructor(sites, radius, seed = 7, maxHeight = 4000) {
+    this.sites = sites;
+    this.radius = radius;
+    this.n = new Simplex3(seed);
+    this.maxHeight = maxHeight;
+    this.craters = craterSet(radius, [[250, 0.5, 0.06], [100, 0.5, 0.09], [40, 0.5, 0.12], [16, 0.46, 0.15], [6, 0.44, 0.17], [2.4, 0.4, 0.18], [0.9, 0.36, 0.18], [0.35, 0.32, 0.16]]);
+  }
+
+  height(x, y, z) {
+    let h = this.n.fbm(x * 3, y * 3, z * 3, 5) * 1200;
+    for (let i = 0; i < this.craters.length; i++) {
+      const [freq, density, depth] = this.craters[i];
+      h += craterOctave(x, y, z, freq, density, 7 + i * 19, depth, this.radius);
+    }
+    for (const s of this.sites) h = flatten(h, x, y, z, s);
     return h;
   }
 
   sample(x, y, z) {
-    return { h: this.height(x, y, z), moisture: 0, maria: this.maria(x, y, z) };
+    return { h: this.height(x, y, z), moisture: 0, maria: 0 };
   }
 }

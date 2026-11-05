@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<title>Vista di prova</title>
+<script type="importmap">
+{ "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }
+</script>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{width:100vw;height:100vh;display:block}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import { SceneRenderer } from '/src/render/renderer.js';
+import { Simulation } from '/src/sim/simulation.js';
+const params = new URLSearchParams(location.search);
+const scen = JSON.parse(params.get('s') || '{}');
+const sim = new Simulation();
+sim.setup({ ship: 'capsule', start: { type: 'orbit', body: 'ausonia', altitude: 300e3 }, sunLon: 20, ...scen });
+const r = new SceneRenderer(document.getElementById('c'), { quality: params.get('q') || 'medium' });
+r.resize(innerWidth, innerHeight);
+await r.init();
+r.setScenario(sim);
+r.setView(params.get('v') || 'chase');
+if (params.get('yaw')) r.yaw = Number(params.get('yaw'));
+if (params.get('tilt')) r.tilt = Number(params.get('tilt'));
+if (params.get('zoom')) r.zoomFactor = Number(params.get('zoom'));
+if (params.get('mz')) r.mapZoom = Number(params.get('mz'));
+for (const h of (params.get('hide') || '').split(',').filter(Boolean)) { if (r[h]?.setVisible) r[h].setVisible(false); else if (r[h]) r[h].visible = false; }
+await r.warmup(sim);
+let last = performance.now();
+window.__dev = { sim, r, frames: 0, ready: false };
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (!params.has('freeze')) sim.update(dt);
+  r.update(sim, dt);
+  r.render();
+  window.__dev.frames++;
+  if (window.__dev.frames > 20 && (r.builder.pending < 4 || window.__dev.frames > 150)) window.__dev.ready = true;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

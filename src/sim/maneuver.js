@@ -1,11 +1,12 @@
-// Trajectory prediction with patched conics, maneuver nodes and automatic burn planning.
-import { V3, G0, clamp } from '../core/math.js';
+// Trajectory prediction with patched conics over the body hierarchy (Sun → planets →
+// moons), maneuver nodes and automatic burn planning (circularisation, apsis changes, plane
+// changes, rendezvous, transfers to a moon or a planet, returns, course corrections).
+import { V3, G0 } from '../core/math.js';
 import { propagate, elements, orbitalFrame } from './orbit.js';
-import { BODIES, LUCINA, lucinaState } from './system.js';
+import { BODIES, childrenOf, relativeState } from './system.js';
 
 const TAU = Math.PI * 2;
 
-/** Mean anomaly → time helpers on an elements object. */
 function meanAnomalyAt(el, nu) {
   const e = el.e;
   if (e < 1) {
@@ -18,7 +19,7 @@ function meanAnomalyAt(el, nu) {
   return e * Math.sinh(H) - H;
 }
 
-/** Time (s) from the current true anomaly to nuTarget, always in the future (Infinity if never). */
+/** Time (s) from the current true anomaly to nuTarget, in the future (Infinity if never). */
 export function timeToTrueAnomaly(el, nuTarget) {
   const M0 = meanAnomalyAt(el, el.nu), M1 = meanAnomalyAt(el, nuTarget);
   if (el.e < 1) {
@@ -39,119 +40,107 @@ export function timeToRadius(el, radius, outbound = true) {
   return timeToTrueAnomaly(el, outbound ? nu : TAU - nu);
 }
 
-/** Context with the moving bodies: the scenario phase of Lucina. */
-export function bodyPosition(id, t, phase, out = new V3()) {
-  if (id === 'lucina') return lucinaState(t, phase, out).pos;
-  return out.set(0, 0, 0);
-}
-
-export function bodyVelocity(id, t, phase, out = new V3()) {
-  if (id === 'lucina') return lucinaState(t, phase, new V3(), out).vel;
-  return out.set(0, 0, 0);
+/** First time (s from t0) the trajectory around `ref` enters the sphere of a child body. */
+function findEncounter(ref, r, v, t0, span, mu, exclude) {
+  if (!(span > 0)) return null;
+  const el = elements(r, v, mu);
+  let best = null;
+  for (const c of childrenOf(ref)) {
+    if (c.id === exclude) continue;
+    const a = c.orbit.a, s = c.soi;
+    const ap = c.orbit.a * (1 + (c.orbit.e || 0)), pe = c.orbit.a * (1 - (c.orbit.e || 0));
+    if (el.e < 1 && el.ra < pe - s) continue;
+    if (el.rp > ap + s) continue;
+    const limit = best ? best.dt : span;
+    const n = Math.min(1400, Math.max(160, Math.ceil(limit / Math.max(60, (c.soi / 8000)))));
+    const dt = limit / n;
+    const pr = new V3(), pv = new V3();
+    const dist = (sec) => {
+      propagate(r, v, sec, mu, pr, pv);
+      const cs = relativeState(c.id, ref, t0 + sec).pos;
+      return Math.hypot(pr.x - cs.x, pr.y - cs.y, pr.z - cs.z);
+    };
+    if (dist(0) < s) continue;
+    void a;
+    let prev = 0;
+    for (let i = 1; i <= n; i++) {
+      const sec = i * dt;
+      if (dist(sec) < s) {
+        let lo = prev, hi = sec;
+        for (let j = 0; j < 40; j++) {
+          const mid = (lo + hi) / 2;
+          if (dist(mid) < s) hi = mid;
+          else lo = mid;
+        }
+        if (!best || hi < best.dt) best = { dt: hi, body: c.id };
+        break;
+      }
+      prev = sec;
+    }
+  }
+  return best;
 }
 
 /**
  * Patched-conic prediction from (pos, vel) relative to `ref` at time t0.
- * Returns segments [{ref, el, t0, pos, vel, tEnd, end: 'none'|'soi-exit'|'encounter'|'impact'|'atmosphere'}].
+ * Segments [{ref, el, t0, pos, vel, tEnd, end: 'none'|'soi-exit'|'encounter'|'impact'|'atmosphere', next}].
  */
-export function predict(ref, pos, vel, t0, phase, { maxSegments = 3, horizon = 3 * 86400 } = {}) {
+export function predict(ref, pos, vel, t0, _unused, { maxSegments = 4, horizon } = {}) {
   const segments = [];
-  let r = pos.clone(), v = vel.clone(), t = t0, curRef = ref;
+  let r = pos.clone(), v = vel.clone(), t = t0, cur = ref, from = null;
   for (let k = 0; k < maxSegments; k++) {
-    const body = BODIES[curRef];
+    const body = BODIES[cur];
     const el = elements(r, v, body.mu);
-    const seg = { ref: curRef, el, t0: t, pos: r.clone(), vel: v.clone(), tEnd: Infinity, end: 'none' };
+    const seg = { ref: cur, el, t0: t, pos: r.clone(), vel: v.clone(), tEnd: Infinity, end: 'none', next: null };
     segments.push(seg);
-    let tEvent = Infinity, kind = 'none';
-    // Surface / atmosphere interface on the way down.
-    const floor = body.radius + (body.atmosphere ? body.atmosphere.height : body.terrain.maxHeight * 0.3);
-    if (el.rp < floor) {
+    let tEvent = Infinity, kind = 'none', next = null;
+    const floor = body.radius + (body.atmosphere ? Math.min(body.atmosphere.height, 120e3) : (body.terrain?.maxHeight || 0) * 0.5 + 2000);
+    if (el.rp < floor && cur !== 'sun') {
       const rNow = r.len();
       const tf = rNow > floor ? timeToRadius(el, floor, false) : 0;
-      const impactR = body.radius + (body.atmosphere ? 0 : body.terrain.maxHeight * 0.1);
-      const ti = el.rp < impactR ? timeToRadius(el, impactR, false) : Infinity;
+      const ti = timeToRadius(el, body.radius + 100, false);
       if (body.atmosphere && tf < Infinity && rNow > floor) {
         tEvent = tf;
         kind = 'atmosphere';
-      } else if (ti < Infinity) {
+      } else if (ti < Infinity && el.rp < body.radius) {
         tEvent = ti;
         kind = 'impact';
       }
     }
-    if (curRef === 'lucina') {
-      if (el.e >= 1 || el.ra > LUCINA.soi) {
-        const tx = timeToRadius(el, LUCINA.soi, true);
-        if (tx < tEvent) {
-          tEvent = tx;
-          kind = 'soi-exit';
-        }
+    if (body.parent && (el.e >= 1 || el.ra > body.soi)) {
+      const tx = timeToRadius(el, body.soi, true);
+      if (tx < tEvent) {
+        tEvent = tx;
+        kind = 'soi-exit';
+        next = body.parent;
       }
-    } else {
-      const span = Math.min(horizon, el.e < 1 ? el.period * 1.02 : horizon, tEvent);
-      const enc = findEncounter(r, v, t, span, phase, body.mu);
-      if (enc !== null && enc < tEvent) {
-        tEvent = enc;
-        kind = 'encounter';
-      }
+    }
+    const span = Math.min(horizon || (cur === 'sun' ? 3.2e7 * 1.5 : 30 * 86400), el.e < 1 ? el.period * 1.02 : Infinity, tEvent);
+    const enc = findEncounter(cur, r, v, t, Number.isFinite(span) ? span : 3e7, body.mu, from);
+    if (enc && enc.dt < tEvent) {
+      tEvent = enc.dt;
+      kind = 'encounter';
+      next = enc.body;
     }
     if (kind === 'none' || !Number.isFinite(tEvent)) break;
     seg.tEnd = t + tEvent;
     seg.end = kind;
+    seg.next = next;
     if (kind === 'impact' || kind === 'atmosphere') break;
     const nr = new V3(), nv = new V3();
     if (!propagate(r, v, tEvent, body.mu, nr, nv)) break;
     t += tEvent;
-    const lp = lucinaState(t, phase);
-    if (kind === 'encounter') {
-      nr.sub(lp.pos);
-      nv.sub(lp.vel);
-      curRef = 'lucina';
-    } else {
-      nr.add(lp.pos);
-      nv.add(lp.vel);
-      curRef = 'ausonia';
-    }
+    const rel = relativeState(next, cur, t);
+    nr.sub(rel.pos);
+    nv.sub(rel.vel);
+    from = kind === 'soi-exit' ? cur : null;
+    cur = next;
     r = nr;
     v = nv;
   }
   return segments;
 }
 
-/** First time (s from now) the Ausonia-centred trajectory enters Lucina's sphere of influence. */
-function findEncounter(r, v, t0, span, phase, mu) {
-  if (!(span > 0)) return null;
-  // Quick reject: the orbit never reaches Lucina's distance band.
-  const el = elements(r, v, mu);
-  const a = LUCINA.orbit.a;
-  if (el.e < 1 && el.ra < a - LUCINA.soi) return null;
-  if (el.rp > a + LUCINA.soi) return null;
-  const n = Math.min(900, Math.max(120, Math.ceil(span / 60)));
-  const dt = span / n;
-  const pr = new V3(), pv = new V3(), lp = new V3();
-  const dist = (s) => {
-    propagate(r, v, s, mu, pr, pv);
-    bodyPosition('lucina', t0 + s, phase, lp);
-    return Math.hypot(pr.x - lp.x, pr.y - lp.y, pr.z - lp.z);
-  };
-  if (dist(0) < LUCINA.soi) return null; // already inside (handled by the caller's frame)
-  let prev = 0;
-  for (let i = 1; i <= n; i++) {
-    const s = i * dt;
-    if (dist(s) < LUCINA.soi) {
-      let lo = prev, hi = s;
-      for (let j = 0; j < 40; j++) {
-        const mid = (lo + hi) / 2;
-        if (dist(mid) < LUCINA.soi) hi = mid;
-        else lo = mid;
-      }
-      return hi;
-    }
-    prev = s;
-  }
-  return null;
-}
-
-/** State of the ship at absolute time t from its current state (same reference, no SOI change). */
 export function stateAt(ref, pos, vel, t0, t) {
   const mu = BODIES[ref].mu;
   const r = new V3(), v = new V3();
@@ -159,19 +148,16 @@ export function stateAt(ref, pos, vel, t0, t) {
   return { r, v };
 }
 
-/** World Δv vector of a node given the state at the node. */
 export function nodeVector(node, r, v) {
   const { pro, nor, rad } = orbitalFrame(r, v);
   return new V3().addScaled(pro, node.pro).addScaled(nor, node.nor).addScaled(rad, node.rad);
 }
 
-/** Decompose a world vector into (pro, nor, rad) at state (r, v). */
 export function decompose(dv, r, v) {
   const { pro, nor, rad } = orbitalFrame(r, v);
   return { pro: dv.dot(pro), nor: dv.dot(nor), rad: dv.dot(rad) };
 }
 
-/** Burn duration (s) for dv with the ship's active engine. */
 export function burnTime(ship, dv) {
   const st = ship.engineStage;
   if (!st || st.fuelLeft <= 0 || dv <= 0) return 0;
@@ -181,14 +167,12 @@ export function burnTime(ship, dv) {
   return ((ship.mass - m1) * ve) / st.engine.thrustVac;
 }
 
-/** Trajectory after a node: segments starting at the node time. */
-export function predictWithNode(ref, pos, vel, t0, node, phase) {
+export function predictWithNode(ref, pos, vel, t0, node) {
   const { r, v } = stateAt(ref, pos, vel, t0, node.t);
-  const dv = nodeVector(node, r, v);
-  return predict(ref, r, v.clone().add(dv), node.t, phase);
+  return predict(ref, r, v.clone().add(nodeVector(node, r, v)), node.t);
 }
 
-/** Closest approach to an object on rails within `span` seconds (same reference). */
+/** Closest approach to a target on rails within `span` seconds (same reference). */
 export function closestApproach(ref, pos, vel, t0, targetState, span) {
   const mu = BODIES[ref].mu;
   const n = 360;
@@ -216,51 +200,175 @@ export function closestApproach(ref, pos, vel, t0, targetState, span) {
   const s = (lo + hi) / 2;
   const d = f(s);
   const ts = targetState(t0 + s);
-  const rel = Math.hypot(pv.x - ts.vel.x, pv.y - ts.vel.y, pv.z - ts.vel.z);
-  return { t: t0 + s, dist: d, relSpeed: rel };
+  return { t: t0 + s, dist: d, relSpeed: Math.hypot(pv.x - ts.vel.x, pv.y - ts.vel.y, pv.z - ts.vel.z) };
 }
 
-// ---------------------------------------------------------------- automatic burn planning
 
-function circSpeed(mu, r) {
-  return Math.sqrt(mu / r);
+// ---------------------------------------------------------------- Lambert's problem
+
+function stumpffCS(z) {
+  if (z > 1e-6) {
+    const q = Math.sqrt(z);
+    return [(1 - Math.cos(q)) / z, (q - Math.sin(q)) / (q * q * q)];
+  }
+  if (z < -1e-6) {
+    const q = Math.sqrt(-z);
+    return [(Math.cosh(q) - 1) / -z, (Math.sinh(q) - q) / (q * q * q)];
+  }
+  return [0.5, 1 / 6];
 }
 
-/** Circularise at the next apoapsis ('ap') or periapsis ('pe'). */
+/**
+ * Single-revolution Lambert solution (universal variables, Curtis alg. 5.2) from R1 to R2
+ * in time dt, prograde with respect to the normal `href`. Returns {v1, v2} or null.
+ */
+export function lambert(R1, R2, dt, mu, href) {
+  const r1 = R1.len(), r2 = R2.len();
+  const cross = new V3().crossVectors(R1, R2);
+  let th = Math.acos(Math.max(-1, Math.min(1, R1.dot(R2) / (r1 * r2))));
+  if (cross.dot(href) < 0) th = TAU - th;
+  const A = Math.sin(th) * Math.sqrt((r1 * r2) / (1 - Math.cos(th)));
+  if (!Number.isFinite(A) || Math.abs(A) < 1e-9) return null;
+  const y = (z) => {
+    const [C, S] = stumpffCS(z);
+    return r1 + r2 + (A * (z * S - 1)) / Math.sqrt(C);
+  };
+  const F = (z) => {
+    const [C, S] = stumpffCS(z);
+    const yz = y(z);
+    if (yz < 0) return -Infinity;
+    return Math.pow(yz / C, 1.5) * S + A * Math.sqrt(yz) - Math.sqrt(mu) * dt;
+  };
+  // Bracket and bisect (F increases with z on the single-revolution branch).
+  let lo = -4 * Math.PI * Math.PI, hi = 4 * Math.PI * Math.PI * 0.999;
+  while (y(lo) < 0 && lo < hi) lo += 0.1;
+  if (F(lo) > 0 || F(hi) < 0) return null;
+  for (let k = 0; k < 100; k++) {
+    const mid = (lo + hi) / 2;
+    if (F(mid) < 0) lo = mid;
+    else hi = mid;
+  }
+  const yz = y((lo + hi) / 2);
+  const f = 1 - yz / r1, g = A * Math.sqrt(yz / mu), gd = 1 - yz / r2;
+  const v1 = R2.clone().addScaled(R1, -f).scale(1 / g);
+  const v2 = R2.clone().scale(gd).sub(R1).scale(1 / g);
+  return { v1, v2 };
+}
+
+/**
+ * Interplanetary departure from a circular-ish parking orbit around `ref` towards the
+ * planet `target` (both orbiting the same parent): porkchop search with Lambert for the
+ * departure date and flight time, then the burn point on the parking orbit that puts the
+ * escape asymptote along the required hyperbolic excess velocity.
+ */
+/** Best departure (Lambert porkchop) from `ref` to the planet `target` after t0. */
+export function porkchop(ref, target, t0) {
+  const body = BODIES[ref];
+  const P = BODIES[body.parent];
+  const tb = BODIES[target];
+  const sA = relativeState(ref, body.parent, t0);
+  const r1 = sA.pos.len(), r2 = tb.orbit.a;
+  const tH = Math.PI * Math.sqrt(((r1 + r2) / 2) ** 3 / P.mu);
+  const n1 = Math.sqrt(P.mu / r1 ** 3), n2 = tb.orbit.n;
+  const href = new V3().crossVectors(sA.pos, sA.vel).normalize();
+  const dn = n1 - n2;
+  const syn = TAU / Math.abs(dn);
+  const sB = relativeState(target, body.parent, t0);
+  let wait = (((phaseAngle(sA.pos, sB.pos, href) - (Math.PI - n2 * tH)) / dn) % syn + syn) % syn;
+  if (wait < 5 * 86400) wait += syn;
+  const departure = (td, tof) => {
+    const a = relativeState(ref, body.parent, td), b = relativeState(target, body.parent, td + tof);
+    const sol = lambert(a.pos, b.pos, tof, P.mu, href);
+    if (!sol) return null;
+    const vinf = sol.v1.clone().sub(a.vel);
+    const varr = sol.v2.clone().sub(b.vel);
+    return { td, tof, vinf, varr, cost: vinf.len() + 0.35 * varr.len() };
+  };
+  let best = null;
+  for (let d = -70; d <= 70; d += 5) {
+    for (let k = 0.7; k <= 1.31; k += 0.05) {
+      const c = departure(t0 + wait + d * 86400, tH * k);
+      if (c && c.td > t0 + 86400 && (!best || c.cost < best.cost)) best = c;
+    }
+  }
+  if (!best) return null;
+  for (let it = 0; it < 30; it++) {
+    let improved = false;
+    for (const [dd, dk] of [[86400, 0], [-86400, 0], [0, tH * 0.01], [0, -tH * 0.01]]) {
+      const c = departure(best.td + dd / (1 + it * 0.2), best.tof + dk / (1 + it * 0.2));
+      if (c && c.td > t0 + 86400 && c.cost < best.cost) {
+        best = c;
+        improved = true;
+      }
+    }
+    if (!improved && it > 6) break;
+  }
+  return best;
+}
+
+function planInterplanetary(ref, pos, vel, t0, target, wantR) {
+  const body = BODIES[ref];
+  const best = porkchop(ref, target, t0);
+  if (!best) return null;
+  if (best.td < t0 + 3600) return null;
+  // Burn on the parking orbit about 1.5 days before the heliocentric departure (escape time).
+  const el = elements(pos, vel, body.mu);
+  const h = new V3().crossVectors(pos, vel).normalize();
+  const vin = best.vinf.len();
+  const rp = el.a;
+  const e = 1 + (rp * vin * vin) / body.mu;
+  const nuInf = Math.acos(-1 / e);
+  const a = best.vinf.clone().addScaled(h, -best.vinf.dot(h)).normalize();
+  const peri = a.clone().scale(Math.cos(nuInf)).sub(new V3().crossVectors(h, a).scale(Math.sin(nuInf))).normalize();
+  // Time (near the departure) when the ship passes over `peri`.
+  const tGuess = best.td - 1.2 * 86400;
+  const sg = stateAt(ref, pos, vel, t0, Math.max(t0 + 120, tGuess));
+  const eg = elements(sg.r, sg.v, body.mu);
+  const { P: Pp, Q: Qp } = perifocalOf(eg);
+  const nuP = Math.atan2(peri.dot(Qp), peri.dot(Pp));
+  let tBurn = Math.max(t0 + 120, tGuess) + timeToTrueAnomaly(eg, nuP < 0 ? nuP + TAU : nuP);
+  const dv0 = Math.sqrt(vin * vin + (2 * body.mu) / rp) - Math.sqrt(body.mu / rp);
+  const cost = (node) => encounterCost(predictWithNode(ref, pos, vel, t0, node), target, wantR, ref);
+  const res = refine({ t: tBurn, pro: dv0, nor: 0, rad: 0 }, ['pro', 't', 'nor', 'rad'], { t: el.period / 40, pro: 10, nor: 20, rad: 20 }, cost, t0, 80, 5e4);
+  return { ...res.node, expected: res.cost, window: best.td, tof: best.tof, vinf: vin };
+}
+
+// ---------------------------------------------------------------- planning
+
+function horizontal(r, v) {
+  return new V3().crossVectors(new V3().crossVectors(r, v), r).normalize();
+}
+
 export function planCircularize(ref, pos, vel, t0, at = 'ap') {
   const mu = BODIES[ref].mu;
   const el = elements(pos, vel, mu);
-  let dt;
-  if (at === 'ap') {
-    if (el.e >= 1) return null;
-    dt = el.timeToAp;
-  } else dt = el.timeToPe;
+  let dt = at === 'ap' ? (el.e < 1 ? el.timeToAp : NaN) : el.timeToPe;
   if (!Number.isFinite(dt)) return null;
   if (el.e < 0.002) dt = 60;
   const { r, v } = stateAt(ref, pos, vel, t0, t0 + dt);
-  const target = new V3().crossVectors(new V3().crossVectors(r, v), r).normalize().scale(circSpeed(mu, r.len()));
-  const dv = target.sub(v);
+  const dv = horizontal(r, v).scale(Math.sqrt(mu / r.len())).sub(v);
   return { t: t0 + dt, ...decompose(dv, r, v) };
 }
 
-/** Change the opposite apsis to radius rTarget, burning at the next apsis (or soon if circular). */
 export function planApsis(ref, pos, vel, t0, rTarget) {
   const mu = BODIES[ref].mu;
   const el = elements(pos, vel, mu);
   if (el.e >= 1) return null;
-  const raising = rTarget > el.a;
-  let dt = raising ? el.timeToPe : el.timeToAp;
+  let dt = rTarget > el.a ? el.timeToPe : el.timeToAp;
   if (el.e < 0.003) dt = 60;
   const { r, v } = stateAt(ref, pos, vel, t0, t0 + dt);
   const rb = r.len();
   const a = (rb + rTarget) / 2;
-  const vNew = Math.sqrt(mu * (2 / rb - 1 / a));
-  const horiz = new V3().crossVectors(new V3().crossVectors(r, v), r).normalize();
-  const dv = horiz.scale(vNew).sub(v);
+  const dv = horizontal(r, v).scale(Math.sqrt(mu * (2 / rb - 1 / a))).sub(v);
   return { t: t0 + dt, ...decompose(dv, r, v) };
 }
 
-/** Rotate the orbit plane into the target's plane at the next relative node. */
+function perifocalOf(el) {
+  const { lan: O, i, argp: w } = el;
+  const cO = Math.cos(O), sO = Math.sin(O), ci = Math.cos(i), si = Math.sin(i), cw = Math.cos(w), sw = Math.sin(w);
+  return { P: new V3(cO * cw - sO * sw * ci, sO * cw + cO * sw * ci, sw * si), Q: new V3(-cO * sw - sO * cw * ci, -sO * sw + cO * cw * ci, cw * si) };
+}
+
 export function planMatchPlane(ref, pos, vel, t0, targetH) {
   const mu = BODIES[ref].mu;
   const h = new V3().crossVectors(pos, vel);
@@ -268,34 +376,21 @@ export function planMatchPlane(ref, pos, vel, t0, targetH) {
   if (line.len() < 1e-9 * h.len() * targetH.len()) return null;
   line.normalize();
   const el = elements(pos, vel, mu);
-  // True anomaly of the two nodes; pick the nearer in time.
   const { P, Q } = perifocalOf(el);
   const best = [line, line.clone().scale(-1)].map((d) => {
     const nu = Math.atan2(d.dot(Q), d.dot(P));
-    return { dt: timeToTrueAnomaly(el, nu < 0 ? nu + TAU : nu), d };
+    return { dt: timeToTrueAnomaly(el, nu < 0 ? nu + TAU : nu) };
   }).sort((a, b) => a.dt - b.dt)[0];
   const { r, v } = stateAt(ref, pos, vel, t0, t0 + best.dt);
-  // New velocity: same magnitude and flight path, in the target plane.
   const nT = targetH.clone().normalize();
   const vr = r.clone().normalize().scale(v.dot(r) / r.len());
   const vh = v.clone().sub(vr);
   const dirH = new V3().crossVectors(nT, r).normalize();
   if (dirH.dot(vh) < 0) dirH.scale(-1);
-  const vNew = dirH.scale(vh.len()).add(vr);
-  const dv = vNew.sub(v);
+  const dv = dirH.scale(vh.len()).add(vr).sub(v);
   return { t: t0 + best.dt, ...decompose(dv, r, v) };
 }
 
-function perifocalOf(el) {
-  const { lan: O, i, argp: w } = el;
-  const cO = Math.cos(O), sO = Math.sin(O), ci = Math.cos(i), si = Math.sin(i), cw = Math.cos(w), sw = Math.sin(w);
-  return {
-    P: new V3(cO * cw - sO * sw * ci, sO * cw + cO * sw * ci, sw * si),
-    Q: new V3(-cO * sw - sO * cw * ci, -sO * sw + cO * cw * ci, cw * si),
-  };
-}
-
-/** Phase angle (rad, 0..2π) of b ahead of a around the orbit normal h. */
 function phaseAngle(a, b, h) {
   const n = h.clone().normalize();
   const x = a.clone().normalize();
@@ -305,10 +400,34 @@ function phaseAngle(a, b, h) {
   return ang;
 }
 
-/**
- * Hohmann transfer towards an object on a (near) circular orbit around the same body,
- * then a local search on node time and Δv to minimise the closest approach.
- */
+/** Pattern search on node parameters: steps grow after a success and shrink after a miss. */
+function refine(start, keys, steps, cost, t0, iterations = 30, stop = -Infinity) {
+  let best = { ...start };
+  let bestCost = cost(best);
+  const st = { ...steps };
+  for (let it = 0; it < iterations; it++) {
+    let improved = false;
+    for (const k of keys) {
+      if (!st[k]) continue;
+      for (const sgn of [-1, 1]) {
+        const cand = { ...best, [k]: best[k] + sgn * st[k] };
+        if (cand.t < t0 + 15) continue;
+        const c = cost(cand);
+        if (c < bestCost) {
+          best = cand;
+          bestCost = c;
+          improved = true;
+          st[k] *= 1.6;
+          break;
+        }
+      }
+    }
+    if (!improved) for (const k of keys) st[k] *= 0.45;
+    if (bestCost < stop) break;
+  }
+  return { node: best, cost: bestCost };
+}
+
 export function planRendezvous(ref, pos, vel, t0, targetState) {
   const mu = BODIES[ref].mu;
   const el = elements(pos, vel, mu);
@@ -317,201 +436,121 @@ export function planRendezvous(ref, pos, vel, t0, targetState) {
   const r2 = t1.pos.len();
   const h = new V3().crossVectors(pos, vel);
   const n1 = Math.sqrt(mu / r1 ** 3), n2 = Math.sqrt(mu / r2 ** 3);
-  const at = (r1 + r2) / 2;
-  const tt = Math.PI * Math.sqrt(at ** 3 / mu);
-  const lead = Math.PI - n2 * tt; // target must lead by this at departure
-  const phi = phaseAngle(pos, t1.pos, h);
+  const tt = Math.PI * Math.sqrt(((r1 + r2) / 2) ** 3 / mu);
+  const lead = Math.PI - n2 * tt;
   const dn = n1 - n2;
-  if (Math.abs(dn) < 1e-9) return null;
-  let wait = (phi - lead) / dn;
+  if (Math.abs(dn) < 1e-12) return null;
   const syn = TAU / Math.abs(dn);
-  wait = ((wait % syn) + syn) % syn;
+  let wait = (((phaseAngle(pos, t1.pos, h) - lead) / dn) % syn + syn) % syn;
   if (wait < 30) wait += syn;
   const dv0 = Math.sqrt(mu / r1) * (Math.sqrt((2 * r2) / (r1 + r2)) - 1);
-  let best = { t: t0 + wait, pro: dv0, nor: 0, rad: 0 };
   const cost = (node) => {
     const { r, v } = stateAt(ref, pos, vel, t0, node.t);
     const nv = v.clone().add(nodeVector(node, r, v));
     return closestApproach(ref, r, nv, node.t, targetState, tt * 1.4).dist;
   };
-  let bestCost = cost(best);
-  let steps = [60, Math.abs(dv0) * 0.04 + 0.5];
-  for (let iter = 0; iter < 26; iter++) {
-    let improved = false;
-    for (const [key, step] of [['t', steps[0]], ['pro', steps[1]], ['rad', steps[1]]]) {
-      for (const s of [-1, 1]) {
-        const cand = { ...best, [key]: best[key] + s * step };
-        if (cand.t < t0 + 10) continue;
-        const c = cost(cand);
-        if (c < bestCost) {
-          best = cand;
-          bestCost = c;
-          improved = true;
-        }
-      }
-    }
-    if (!improved) steps = steps.map((s) => s * 0.5);
+  const res = refine({ t: t0 + wait, pro: dv0, nor: 0, rad: 0 }, ['t', 'pro', 'rad'], { t: 60, pro: Math.abs(dv0) * 0.04 + 0.5, rad: Math.abs(dv0) * 0.04 + 0.5 }, cost, t0, 26);
+  return { ...res.node, expected: res.cost };
+}
+
+/** Periapsis error at `target` for a prediction (Infinity-like penalty without encounter). */
+function encounterCost(segs, target, wantR, ref) {
+  const s = segs.find((x) => x.ref === target);
+  if (!s) {
+    // No encounter: closest approach of the arc that should reach the target, as penalty.
+    const arc = segs.find((x) => x.ref === BODIES[target].parent) || segs[0];
+    const span = arc.el.e < 1 ? Math.min(arc.el.period, 4e7) : 4e7;
+    const ca = closestApproach(arc.ref, arc.pos, arc.vel, arc.t0, (tt) => relativeState(target, arc.ref, tt), span);
+    return 1e9 + ca.dist;
   }
-  return { ...best, expected: bestCost };
+  // Prefer prograde capture orbits (same sense as the body's rotation is not required).
+  void ref;
+  return Math.abs(s.el.rp - wantR);
 }
 
 /**
- * Transfer from Ausonia orbit to Lucina with a periapsis at `pe` metres altitude: Hohmann
- * estimate, then a search on time and prograde Δv using the patched-conic predictor.
+ * Transfer to `target`: a moon of the current body (e.g. the Moon from Earth orbit) or a
+ * planet sharing the same parent (e.g. Mars from Earth orbit, departing on a hyperbola).
  */
-export function planLucinaTransfer(pos, vel, t0, phase, peAlt = 60e3) {
-  const mu = BODIES.ausonia.mu;
-  const el = elements(pos, vel, mu);
+export function planTransfer(ref, pos, vel, t0, target, peAlt) {
+  const body = BODIES[ref];
+  const tb = BODIES[target];
+  if (!tb || target === ref) return null;
+  const wantR = tb.radius + peAlt;
+  const el = elements(pos, vel, body.mu);
   if (el.e >= 1) return null;
-  const r1 = el.a, r2 = LUCINA.orbit.a;
-  const h = new V3().crossVectors(pos, vel);
-  const at = (r1 + r2) / 2;
-  const tt = Math.PI * Math.sqrt(at ** 3 / mu);
-  const n1 = Math.sqrt(mu / r1 ** 3), n2 = LUCINA.orbit.n;
-  const lp = lucinaState(t0, phase).pos;
-  const phi = phaseAngle(pos, lp, h);
-  const lead = Math.PI - n2 * tt;
-  const dn = n1 - n2;
-  const syn = TAU / dn;
-  let wait = (((phi - lead) / dn) % syn + syn) % syn;
-  if (wait < 60) wait += syn;
-  const dv0 = Math.sqrt(mu / r1) * (Math.sqrt((2 * r2) / (r1 + r2)) - 1);
-  const wantR = LUCINA.radius + peAlt;
-  const cost = (node) => {
-    const segs = predictWithNode('ausonia', pos, vel, t0, { ...node, nor: 0, rad: 0 }, phase);
-    const s = segs.find((x) => x.ref === 'lucina');
-    if (!s) {
-      // No encounter: distance of closest approach to Lucina (rough) as penalty.
-      return 1e7 + approachToLucina(segs[0], phase);
-    }
-    // Prefer prograde (counter-clockwise) arrival orbits.
-    const retro = s.el.h.z < 0 ? 2e5 : 0;
-    return Math.abs(s.el.rp - wantR) + retro;
-  };
-  let best = { t: t0 + wait, pro: dv0 };
-  let bestCost = cost(best);
-  let steps = [120, 6];
-  for (let iter = 0; iter < 36; iter++) {
-    let improved = false;
-    for (const [key, step] of [['t', steps[0]], ['pro', steps[1]]]) {
-      for (const s of [-1, 1]) {
-        const cand = { ...best, [key]: best[key] + s * step };
-        if (cand.t < t0 + 20) continue;
-        const c = cost(cand);
-        if (c < bestCost) {
-          best = cand;
-          bestCost = c;
-          improved = true;
-        }
-      }
-    }
-    if (!improved) steps = steps.map((s) => s * 0.5);
-    if (bestCost < 2000) break;
+  if (tb.parent === ref) {
+    // Moon transfer: Hohmann in the parent frame, then search.
+    const r1 = el.a, r2 = tb.orbit.a;
+    const tt = Math.PI * Math.sqrt(((r1 + r2) / 2) ** 3 / body.mu);
+    const h = new V3().crossVectors(pos, vel);
+    const n1 = Math.sqrt(body.mu / r1 ** 3), n2 = tb.orbit.n;
+    const lp = relativeState(target, ref, t0).pos;
+    const dn = n1 - n2;
+    const syn = TAU / dn;
+    let wait = (((phaseAngle(pos, lp, h) - (Math.PI - n2 * tt)) / dn) % syn + syn) % syn;
+    if (wait < 120) wait += syn;
+    const dv0 = Math.sqrt(body.mu / r1) * (Math.sqrt((2 * r2) / (r1 + r2)) - 1);
+    const cost = (node) => encounterCost(predictWithNode(ref, pos, vel, t0, { ...node, nor: 0, rad: 0 }), target, wantR, ref);
+    const res = refine({ t: t0 + wait, pro: dv0 }, ['t', 'pro'], { t: 90, pro: 8 }, cost, t0, 40, 3000);
+    return { t: res.node.t, pro: res.node.pro, nor: 0, rad: 0, expected: res.cost };
   }
-  return { t: best.t, pro: best.pro, nor: 0, rad: 0, expected: bestCost };
+  if (tb.parent === body.parent && body.parent) return planInterplanetary(ref, pos, vel, t0, target, wantR);
+  return null;
 }
 
-function approachToLucina(seg, phase) {
-  const span = seg.el.e < 1 ? seg.el.period : 2e5;
-  return closestApproach('ausonia', seg.pos, seg.vel, seg.t0, (t) => lucinaState(t, phase), span).dist;
-}
-
-/**
- * Leave Lucina towards Ausonia with an Ausonia periapsis at `peAlt` (re-entry corridor):
- * search over the burn point on the current lunar orbit and the prograde Δv.
- */
-export function planReturnToAusonia(pos, vel, t0, phase, peAlt = 45e3) {
-  const mu = BODIES.lucina.mu;
-  const el = elements(pos, vel, mu);
+/** Leave a moon (or a planet) towards its parent's body with a periapsis at `peAlt`. */
+export function planReturn(ref, pos, vel, t0, home, peAlt) {
+  const body = BODIES[ref];
+  const el = elements(pos, vel, body.mu);
   if (el.e >= 1) return null;
-  const wantR = BODIES.ausonia.radius + peAlt;
-  const vEsc = Math.sqrt((2 * mu) / el.a);
-  const cost = (node) => {
-    const segs = predictWithNode('lucina', pos, vel, t0, { ...node, nor: 0, rad: 0 }, phase);
-    const s = segs.find((x) => x.ref === 'ausonia');
-    if (!s) return 1e8;
-    return Math.abs(s.el.rp - wantR);
-  };
-  let best = null, bestCost = Infinity;
-  for (let k = 0; k < 24; k++) {
-    for (const extra of [80, 160, 260]) {
-      const cand = { t: t0 + 60 + (k / 24) * el.period, pro: vEsc - Math.sqrt(mu / el.a) + extra };
-      const c = cost(cand);
-      if (c < bestCost) {
-        best = cand;
-        bestCost = c;
-      }
-    }
-  }
-  if (!best) return null;
-  let steps = [el.period / 48, 20];
-  for (let iter = 0; iter < 36; iter++) {
-    let improved = false;
-    for (const [key, step] of [['t', steps[0]], ['pro', steps[1]]]) {
-      for (const s of [-1, 1]) {
-        const cand = { ...best, [key]: best[key] + s * step };
-        if (cand.t < t0 + 20) continue;
+  const hb = BODIES[home];
+  const wantR = hb.radius + peAlt;
+  if (body.parent === home) {
+    const vEsc = Math.sqrt((2 * body.mu) / el.a);
+    const cost = (node) => {
+      const segs = predictWithNode(ref, pos, vel, t0, { ...node, nor: 0, rad: 0 });
+      const s = segs.find((x) => x.ref === home);
+      return s ? Math.abs(s.el.rp - wantR) : 1e9;
+    };
+    let best = null, bestCost = Infinity;
+    for (let k = 0; k < 24; k++) {
+      for (const extra of [60, 140, 260, 420]) {
+        const cand = { t: t0 + 60 + (k / 24) * el.period, pro: vEsc - Math.sqrt(body.mu / el.a) + extra };
         const c = cost(cand);
         if (c < bestCost) {
           best = cand;
           bestCost = c;
-          improved = true;
         }
       }
     }
-    if (!improved) steps = steps.map((s) => s * 0.5);
+    if (!best) return null;
+    const res = refine(best, ['t', 'pro'], { t: el.period / 48, pro: 20 }, cost, t0, 36);
+    return { t: res.node.t, pro: res.node.pro, nor: 0, rad: 0, expected: res.cost };
   }
-  return { t: best.t, pro: best.pro, nor: 0, rad: 0, expected: bestCost };
+  // Planet → planet (e.g. Mars → Earth): same machinery as an outbound transfer.
+  return planTransfer(ref, pos, vel, t0, home, peAlt);
 }
 
-/**
- * Mid-course correction: small burn in a minute that sets the periapsis at the next body
- * (Lucina when outbound, Ausonia when returning) to `peAlt`.
- */
-export function planCourseCorrection(ref, pos, vel, t0, phase, peAlt) {
-  const nextRef = ref === 'ausonia' ? 'lucina' : 'ausonia';
-  const wantR = BODIES[nextRef].radius + peAlt;
+/** Small burn in a minute that sets the periapsis at the next encountered body. */
+export function planCourseCorrection(ref, pos, vel, t0, peAltFor) {
+  const segs = predict(ref, pos, vel, t0);
+  const target = segs.find((s, i) => i > 0 && s.ref !== 'sun' && s.ref !== ref)?.ref || segs[0].next;
+  if (!target) return null;
+  const wantR = BODIES[target].radius + peAltFor(target);
   const tNode = t0 + 60;
-  const cost = (node) => {
-    const segs = predictWithNode(ref, pos, vel, t0, { ...node, t: tNode }, phase);
-    const s = segs.find((x) => x.ref === nextRef);
-    if (!s) return 1e8 + (nextRef === 'lucina' ? approachToLucina(segs[0], phase) : 0) + Math.hypot(node.pro, node.nor, node.rad) * 10;
-    return Math.abs(s.el.rp - wantR) + Math.hypot(node.pro, node.nor, node.rad) * 200;
-  };
-  let best = { pro: 0, nor: 0, rad: 0 };
-  let bestCost = cost(best);
-  let step = 8;
-  for (let iter = 0; iter < 60 && step > 0.02; iter++) {
-    let improved = false;
-    for (const key of ['pro', 'rad', 'nor']) {
-      for (const s of [-1, 1]) {
-        const cand = { ...best, [key]: best[key] + s * step };
-        const c = cost(cand);
-        if (c < bestCost) {
-          best = cand;
-          bestCost = c;
-          improved = true;
-        }
-      }
-    }
-    if (!improved) step *= 0.5;
-  }
-  return { t: tNode, ...best, expected: bestCost };
+  const cost = (node) => encounterCost(predictWithNode(ref, pos, vel, t0, { ...node, t: tNode }), target, wantR, ref) + Math.hypot(node.pro, node.nor, node.rad) * 150;
+  const res = refine({ t: tNode, pro: 0, nor: 0, rad: 0 }, ['pro', 'rad', 'nor'], { t: 0, pro: 6, rad: 6, nor: 6 }, cost, t0 - 100, 60);
+  return { ...res.node, t: tNode, target, expected: res.cost };
 }
 
-/** Retro burn to lower the periapsis to `peAlt` half an orbit from now (or `delay`). */
 export function planDeorbit(ref, pos, vel, t0, peAlt, delay = 90) {
   const body = BODIES[ref];
   const { r, v } = stateAt(ref, pos, vel, t0, t0 + delay);
-  const mu = body.mu;
   const rb = r.len();
   const rp = body.radius + peAlt;
   if (rp >= rb) return null;
   const a = (rb + rp) / 2;
-  const vNew = Math.sqrt(mu * (2 / rb - 1 / a));
-  const horiz = new V3().crossVectors(new V3().crossVectors(r, v), r).normalize();
-  const dv = horiz.scale(vNew).sub(v);
+  const dv = horizontal(r, v).scale(Math.sqrt(body.mu * (2 / rb - 1 / a))).sub(v);
   return { t: t0 + delay, ...decompose(dv, r, v) };
 }
-
-export { clamp };
