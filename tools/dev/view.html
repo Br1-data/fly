@@ -13,10 +13,12 @@
 <script type="module">
 import { SceneRenderer } from '/src/render/renderer.js';
 import { Simulation } from '/src/sim/simulation.js';
+import { loadPlanetData } from '/src/sim/planet-data.js';
+await loadPlanetData();
 const params = new URLSearchParams(location.search);
 const scen = JSON.parse(params.get('s') || '{}');
 const sim = new Simulation();
-sim.setup({ ship: 'capsule', start: { type: 'orbit', body: 'ausonia', altitude: 300e3 }, sunLon: 20, ...scen });
+sim.setup({ ship: 'capsule', start: { type: 'orbit', body: 'earth', altitude: 400e3 }, ...scen });
 const r = new SceneRenderer(document.getElementById('c'), { quality: params.get('q') || 'medium' });
 r.resize(innerWidth, innerHeight);
 await r.init();
@@ -31,6 +33,7 @@ await r.warmup(sim);
 let last = performance.now();
 window.__dev = { sim, r, frames: 0, ready: false };
 function frame(now) {
+  if (window.__dev.stop) { if (!window.__dev.stopped) { window.__dev.stopped = true; r.update(sim, 0.016); r.render(); } requestAnimationFrame(frame); return; }
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (!params.has('freeze')) sim.update(dt);

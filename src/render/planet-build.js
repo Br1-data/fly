@@ -2,8 +2,7 @@
 // functions. Pure function (no three.js): runs in a module worker or on the main thread.
 // Output arrays are in three.js axes (x = sim x, y = sim z, z = −sim y) and relative to the
 // chunk centre so that float32 keeps centimetre precision near the camera.
-import { AusoniaTerrain, LucinaTerrain } from '../sim/terrain.js';
-import { SITES } from '../sim/system.js';
+import { BODIES } from '../sim/system.js';
 
 // Face frames in simulation axes: normal N, then U and V spanning the face.
 const FACES = [
@@ -15,10 +14,10 @@ const FACES = [
   [[0, 0, -1], [0, 1, 0], [1, 0, 0]],
 ];
 
-const terrains = {};
+/** Terrain model of a body ('flat' or a body without relief: a plain sphere). */
 function terrainFor(body) {
-  if (!terrains[body]) terrains[body] = body === 'lucina' ? new LucinaTerrain([SITES.lucerna]) : body === 'ausonia' ? new AusoniaTerrain([SITES.spaceport]) : null;
-  return terrains[body];
+  const t = BODIES[body]?.terrain;
+  return t && !t.flat ? t : null;
 }
 
 /** Unit direction (sim axes) of face coordinates (a, b) in [-1, 1]. */
@@ -62,7 +61,7 @@ export function chunkIndices(res) {
 }
 
 /**
- * Job: { body: 'ausonia'|'lucina'|'flat', face, x0, y0, size, res, radius, level }.
+ * Job: { body: body id | 'flat', face, x0, y0, size, res, radius, level }.
  * Returns { center: [x,y,z] (sim axes, metres from the body centre), position, normal, dir,
  * info, tile (Float32Array), radius (bounding sphere), minH, maxH }.
  */
@@ -85,21 +84,14 @@ export function buildChunk(job) {
       faceDir(face, x0 + (i - 1) * step, y0 + (j - 1) * step, d);
       let h = 0, mo = 0, ma = 0;
       if (terrain) {
-        if (job.body === 'lucina') {
-          h = terrain.height(d[0], d[1], d[2], octaves);
-          ma = terrain.maria(d[0], d[1], d[2]);
-        } else {
-          const s = terrain.sample(d[0], d[1], d[2]);
-          h = s.h;
-          mo = s.moisture;
-        }
+        h = terrain.height(d[0], d[1], d[2], octaves);
       }
       const k = j * m + i;
       hs[k] = h;
       moist[k] = mo;
       maria[k] = ma;
       // Oceans: the visible surface is the sea level.
-      const r = radius + (job.body === 'ausonia' ? Math.max(h, 0) : h);
+      const r = radius + (BODIES[job.body]?.ocean ? Math.max(h, 0) : h);
       px[k] = d[0] * r;
       py[k] = d[1] * r;
       pz[k] = d[2] * r;
@@ -124,8 +116,8 @@ export function buildChunk(job) {
     position[v * 3 + 2] = oz;
     const rl = Math.hypot(px[k], py[k], pz[k]);
     dir[v * 3] = px[k] / rl;
-    dir[v * 3 + 1] = pz[k] / rl;
-    dir[v * 3 + 2] = -py[k] / rl;
+    dir[v * 3 + 1] = py[k] / rl;
+    dir[v * 3 + 2] = pz[k] / rl;
     info[v * 3] = hs[k];
     info[v * 3 + 1] = moist[k];
     info[v * 3 + 2] = maria[k];

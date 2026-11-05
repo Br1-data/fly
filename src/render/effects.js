@@ -161,7 +161,7 @@ export class Effects {
     if (this.boom) {
       const b = this.boom;
       b.t += dt;
-      const air = s.dynPressure > 0 || s.altitude < 60000 && s.ref === 'ausonia';
+      const air = s.dynPressure > 0;
       this.flash.visible = b.t < 1.2;
       r.rel(b.abs, this.flash.position);
       this.flash.scale.setScalar(20 + b.t * 80);

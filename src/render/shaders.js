@@ -68,6 +68,7 @@ uniform float uR;
 uniform float uAtmR;
 uniform vec3 uBetaR;
 uniform float uBetaM;
+uniform vec3 uMieColor;
 uniform float uHR;
 uniform float uHM;
 uniform float uSunPower;
@@ -117,23 +118,29 @@ vec3 scatter(vec3 r0, vec3 rd, float tMax, int steps, out vec3 tr) {
     vec2 dd = exp(-h / vec2(uHR, uHM)) * ds;
     od += dd;
     vec2 ls = sunDepth(p);
-    vec3 att = exp(-(uBetaR * (od.x + ls.x) + uBetaM * 1.1 * (od.y + ls.y)));
+    vec3 att = exp(-(uBetaR * (od.x + ls.x) + uBetaM * uMieColor * 1.1 * (od.y + ls.y)));
     totR += dd.x * att;
     totM += dd.y * att;
   }
-  tr = exp(-(uBetaR * od.x + uBetaM * 1.1 * od.y));
-  return uSunPower * (pr * uBetaR * totR + pm * uBetaM * totM);
+  tr = exp(-(uBetaR * od.x + uBetaM * uMieColor * 1.1 * od.y));
+  return uSunPower * (pr * uBetaR * totR + pm * uBetaM * uMieColor * totM);
 }
 // Colour of direct sunlight reaching p (relative to the planet centre).
 vec3 sunlightAt(vec3 p) {
   vec2 od = sunDepth(p);
-  return exp(-(uBetaR * od.x + uBetaM * 1.1 * od.y));
+  return exp(-(uBetaR * od.x + uBetaM * uMieColor * 1.1 * od.y));
 }
 `;
 
-export const NO_ATMOSPHERE_GLSL = /* glsl */ `
-uniform vec3 uPlanet;
-uniform float uR;
-uniform vec3 uSunDir;
-uniform float uSunPower;
+/** Equirectangular lookup by a body-fixed direction (sim axes), seam-safe mip selection. */
+export const EQUIRECT_GLSL = /* glsl */ `
+vec4 equirect(sampler2D t, vec3 d) {
+  float lon = atan(d.y, d.x);
+  float lat = asin(clamp(d.z, -1.0, 1.0));
+  vec2 uv = vec2(lon / 6.2831853 + 0.5, 0.5 + lat / 3.1415927);
+  vec2 uv2 = vec2(fract(uv.x + 0.5) - 0.5, uv.y);
+  vec2 dx = dFdx(uv), dy = dFdy(uv), dx2 = dFdx(uv2), dy2 = dFdy(uv2);
+  if (dot(dx2, dx2) + dot(dy2, dy2) < dot(dx, dx) + dot(dy, dy)) { dx = dx2; dy = dy2; }
+  return textureGrad(t, uv, dx, dy);
+}
 `;

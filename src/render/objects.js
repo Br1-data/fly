@@ -367,6 +367,13 @@ export function buildSpaceport(site) {
   const m = mats();
   const root = new THREE.Group();
   const lights = [];
+  if (!site.noPad) buildPad(root, lights, m);
+  buildRunway(root, lights, m, site.runway);
+  root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return { root, lights };
+}
+
+function buildPad(root, lights, m) {
   const padG = new THREE.Mesh(new THREE.CylinderGeometry(70, 74, 3, 48), m.concrete);
   padG.position.y = -1.3;
   root.add(padG);
@@ -387,10 +394,15 @@ export function buildSpaceport(site) {
     rod(root, [x, 0, z], [x, 80, z], 0.5, m.metal);
     lights.push({ sprite: glow(root, [x, 81, z], 0xff2020, 3), blink: 1, phase: x * 0.01 });
   }
-  // Runway east-west, south of the pad.
-  const rw = site.runway;
+  // Vehicle assembly building
+  box(root, 120, 90, 100, [-700, 45, -200], m.white);
+  box(root, 30, 70, 2, [-700, 35, -149], m.dark);
+}
+
+function buildRunway(root, lights, m, rw) {
   const runway = new THREE.Group();
   runway.position.set(rw.east, 0, -rw.north);
+  runway.rotation.y = -((rw.heading - 90) * Math.PI) / 180;
   const strip = new THREE.Mesh(new THREE.PlaneGeometry(rw.length, rw.width), m.asphalt);
   strip.rotation.x = -Math.PI / 2;
   strip.position.y = 0.06;
@@ -417,16 +429,12 @@ export function buildSpaceport(site) {
   const edgeLights = new THREE.Points(eg, new THREE.PointsMaterial({ color: 0xfff1c0, size: 3, sizeAttenuation: false, transparent: true, opacity: 0.9, depthWrite: false }));
   runway.add(edgeLights);
   root.add(runway);
-  // Hangars and control centre
-  for (const [x, z, w, d, hgt] of [[400, 260, 80, 60, 26], [520, 260, 60, 60, 22], [-300, 300, 50, 30, 14], [-380, 300, 40, 30, 40]]) {
-    box(root, w, hgt, d, [x, hgt / 2, z], m.white);
-    box(root, w * 1.02, 1, d * 1.02, [x, hgt, z], m.metal);
+  // Hangars and control tower beside the runway.
+  for (const [x, z, w, d, hgt] of [[-600, 120, 80, 60, 26], [-480, 120, 60, 60, 22], [300, 110, 50, 30, 14], [380, 110, 12, 12, 40]]) {
+    box(runway, w, hgt, d, [x, hgt / 2, z], m.white);
+    box(runway, w * 1.02, 1, d * 1.02, [x, hgt, z], m.metal);
   }
-  // Vehicle assembly building
-  box(root, 120, 90, 100, [-700, 45, -200], m.white);
-  box(root, 30, 70, 2, [-700, 35, -149], m.dark);
-  root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  return { root, lights, edgeLights };
+  lights.push({ sprite: glow(runway, [380, 41, 110], 0xff3030, 3), blink: 1, phase: 0.3 });
 }
 
 export function buildLucerna(site) {

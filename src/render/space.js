@@ -7,7 +7,7 @@ import { rng } from '../core/math.js';
 import { bakeCube } from './planet.js';
 import { getFlareTextures, getGlowTexture } from './textures.js';
 
-const FAR = 4e10;
+const FAR = 5e13;
 
 const MILKY_BAKE = /* glsl */ `
 vec4 bake(vec3 d) {
@@ -143,16 +143,16 @@ export class SpaceBackground {
   }
 
   /** sunDir: three-axes unit vector. fade: 0 (bright sky) .. 1 (space). */
-  update(sunDir, fade, sunColor, pixelRatio, flareStrength) {
+  update(sunDir, fade, sunColor, pixelRatio, flareStrength, sunAngle = 0.0047) {
     this.starMaterial.uniforms.uFade.value = fade;
     this.starMaterial.uniforms.uPixelRatio.value = pixelRatio;
     this.milkyMaterial.uniforms.uFade.value = fade;
     const d = FAR * 0.8;
     this.sunDisc.position.copy(sunDir).multiplyScalar(d);
     this.sunGlow.position.copy(this.sunDisc.position);
-    // Angular diameter about 0.6°; the glow halo much wider.
-    this.sunDisc.scale.setScalar(d * 0.022);
-    this.sunGlow.scale.setScalar(d * 0.16);
+    // The real angular size of the Sun from here; the glow halo much wider.
+    this.sunDisc.scale.setScalar(d * Math.tan(sunAngle) * 4.5);
+    this.sunGlow.scale.setScalar(d * Math.max(0.02, Math.tan(sunAngle) * 34));
     this.sunDisc.material.color.copy(sunColor).multiplyScalar(4.2);
     this.sunGlow.material.color.copy(sunColor).multiplyScalar(0.9);
     this.sunGlow.material.opacity = 0.35 + 0.4 * (1 - fade);

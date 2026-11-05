@@ -4,9 +4,10 @@
 // vessels, objects, surface sites, mission markers, orbit lines and the camera views.
 import * as THREE from 'three';
 import { V3, clamp, smoothstep } from '../core/math.js';
-import { BODIES, AUSONIA, LUCINA, SITES, siteFrame } from '../sim/system.js';
+import { BODIES, SITES, bodyOrientation, childrenOf, relativeState } from '../sim/system.js';
 import { elements, conicPoints, propagate } from '../sim/orbit.js';
-import { PlanetLOD, ChunkBuilder, ausoniaMaterial, lucinaMaterial, cloudMaterial, createAtmosphereShell, bakeCube, CLOUD_BAKE } from './planet.js';
+import { ChunkBuilder } from './planet.js';
+import { createBodies } from './bodies.js';
 import { SpaceBackground } from './space.js';
 import { createVessel, updateVessel } from './vessels.js';
 import { buildStation, buildOrbiter, buildSatellite, buildSwarm, updateSwarm, buildSpaceport, buildLucerna, updateLights } from './objects.js';
@@ -24,10 +25,17 @@ export function toThree(v, out = new THREE.Vector3()) {
   return out.set(v.x, v.z, -v.y);
 }
 
-/** three quaternion for a body→sim-world quaternion. */
+/** three quaternion for a body→sim-world quaternion (model built in body sim axes). */
 export function quatToThree(q, out = new THREE.Quaternion()) {
   out.set(q.x, q.y, q.z, q.w);
   return out.premultiply(Q_C);
+}
+
+const Q_CI = Q_C.clone().invert();
+/** Same rotation for content already expressed in three axes (planet chunks, sites). */
+export function quatToThreeAxes(q, out = new THREE.Quaternion()) {
+  out.set(q.x, q.y, q.z, q.w);
+  return out.premultiply(Q_C).multiply(Q_CI);
 }
 
 /**
@@ -109,7 +117,7 @@ export class SceneRenderer {
     this.webgl.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
-    this.camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 1e11);
+    this.camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 1e14);
     this.width = 1280;
     this.height = 720;
     this.view = 'chase';
@@ -141,20 +149,14 @@ export class SceneRenderer {
     onProgress(0.05, 'Preparazione delle stelle…');
     this.space = new SpaceBackground(this.scene, this.webgl, p.quality);
     await nextFrame();
-    onProgress(0.2, 'Formazione delle nubi…');
-    this.cloudRT = bakeCube(this.webgl, p.quality === 'low' ? 512 : 1024, CLOUD_BAKE);
-    await nextFrame();
-    onProgress(0.35, 'Costruzione dei pianeti…');
+    onProgress(0.2, 'Costruzione dei pianeti…');
     this.builder = new ChunkBuilder(p.workers);
-    this.ausoniaMat = ausoniaMaterial(p.quality, this.cloudRT.texture);
-    this.lucinaMat = lucinaMaterial(p.quality);
-    this.cloudMat = cloudMaterial(p.quality, this.cloudRT.texture);
-    this.ausonia = new PlanetLOD(this.scene, { kind: 'ausonia', radius: AUSONIA.radius, material: this.ausoniaMat, res: p.lodRes, maxLevel: 13, split: p.split, builder: this.builder, terrain: AUSONIA.terrain, cacheSize: 1100 });
-    this.lucina = new PlanetLOD(this.scene, { kind: 'lucina', radius: LUCINA.radius, material: this.lucinaMat, res: p.lodRes, maxLevel: 12, split: p.split, builder: this.builder, terrain: LUCINA.terrain, cacheSize: 1100 });
-    this.cloudAlt = 6500;
-    this.clouds = new PlanetLOD(this.scene, { kind: 'flat', radius: AUSONIA.radius + this.cloudAlt, material: this.cloudMat, res: 16, maxLevel: 9, split: 2.0, builder: this.builder, renderOrder: 8, cacheSize: 400 });
-    this.atmosphere = createAtmosphereShell(AUSONIA, p.quality);
-    this.scene.add(this.atmosphere);
+    const bodies = createBodies(this.scene, this.webgl, p, this.builder);
+    this.bodies = bodies.views;
+    this.bodyDots = bodies.dots;
+    this.bodyDotIds = bodies.dotIds;
+    this.cloudRT = bodies.cloudRT;
+    await nextFrame();
     onProgress(0.6, 'Luci e ombre…');
     this.sun = new THREE.DirectionalLight(0xffffff, 3);
     this.sun.castShadow = p.shadows;
@@ -169,15 +171,22 @@ export class SceneRenderer {
     this.scene.add(this.ambient);
     this.pmrem = new THREE.PMREMGenerator(this.webgl);
     this.envScene = this.createEnvScene();
-    // Surface sites
-    this.spaceport = buildSpaceport(SITES.spaceport);
-    this.lucerna = buildLucerna(SITES.lucerna);
-    this.scene.add(this.spaceport.root, this.lucerna.root);
-    this.siteFrames = { spaceport: siteFrame(SITES.spaceport), lucerna: siteFrame(SITES.lucerna) };
-    for (const [key, view] of [['spaceport', this.spaceport], ['lucerna', this.lucerna]]) {
-      const f = this.siteFrames[key];
-      const m = new THREE.Matrix4().makeBasis(toThree(f.east), toThree(f.up), toThree(f.north.clone().scale(-1)));
-      view.root.quaternion.setFromRotationMatrix(m);
+    // Surface sites, attached to their (rotating) bodies in body-fixed coordinates.
+    this.sites = [];
+    for (const site of Object.values(SITES)) {
+      const view = site.body === 'earth' ? buildSpaceport(site) : buildLucerna(site);
+      const bv = this.bodies[site.body];
+      const b = BODIES[site.body];
+      const lon = (site.lon * Math.PI) / 180;
+      const up = new V3(...site.dir);
+      const east = new V3(-Math.sin(lon), Math.cos(lon), 0);
+      const north = new V3().crossVectors(up, east);
+      const h = b.terrain.height(up.x, up.y, up.z);
+      const pos = up.clone().scale(b.radius + (b.ocean ? Math.max(h, 0) : h));
+      view.root.position.copy(toThree(pos));
+      view.root.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(toThree(east), toThree(up), toThree(north.clone().scale(-1))));
+      bv.group.add(view.root);
+      this.sites.push({ site, view });
     }
     this.effects = new Effects(this.scene, p.quality);
     this.markerGroup = new THREE.Group();
@@ -332,7 +341,7 @@ export class SceneRenderer {
 
   zoom(delta) {
     const k = Math.exp(delta * 0.0015);
-    if (this.view === 'map') this.mapZoom = clamp(this.mapZoom * k, 1.4, 160);
+    if (this.view === 'map') this.mapZoom = clamp(this.mapZoom * k, 1.4, 60000);
     else if (this.view === 'cockpit') this.camera.fov = clamp(this.camera.fov * k, 25, 95);
     else this.zoomFactor = clamp(this.zoomFactor * k, 0.25, 40);
     this.camera.updateProjectionMatrix();
@@ -427,7 +436,7 @@ export class SceneRenderer {
     const rr = rel.len();
     if (rr > 1) {
       const dirn = rel.clone().scale(1 / rr);
-      const gh = body.terrain.height(dirn.x, dirn.y, dirn.z);
+      const gh = sim.heightAt(s.ref, rel);
       const floor = body.radius + (body.ocean ? Math.max(gh, 0) : gh) + 1.2;
       if (rr < floor) pos = bp.clone().addScaled(dirn, floor);
     }
@@ -458,10 +467,25 @@ export class SceneRenderer {
 
   // ------------------------------------------------------------------ per frame
   updateBodies(sim) {
-    for (const [id, lod] of [['ausonia', this.ausonia], ['lucina', this.lucina], ['ausonia', this.clouds]]) {
-      const bp = sim.bodyPos(id);
+    const t = sim.t;
+    const pxPerRad = this.height / ((this.camera.fov * Math.PI) / 180);
+    for (const v of Object.values(this.bodies)) {
+      const bp = sim.bodyPos(v.id);
+      this.rel(bp, v.group.position);
+      const q = bodyOrientation(v.id, t);
+      quatToThreeAxes(q, v.group.quaternion);
       const camRel = this.camAbs.clone().sub(bp);
-      lod.update(camRel, this.rel(bp));
+      const d = camRel.len();
+      const px = (Math.asin(Math.min(1, v.body.radius / Math.max(d, v.body.radius))) * pxPerRad);
+      v.px = px;
+      v.group.visible = px > 0.6;
+      if (v.lod) {
+        const fixed = q.rotateInv(camRel, new V3());
+        if (v.group.visible) {
+          v.lod.update(fixed);
+          v.clouds?.update(fixed);
+        }
+      }
     }
   }
 
@@ -474,70 +498,92 @@ export class SceneRenderer {
     // Bodies, atmosphere, clouds.
     this.updateBodies(sim);
     this.builder.pump(this.touch ? 3 : 5);
-    const aPos = this.rel(sim.bodyPos('ausonia'));
-    const lPos = this.rel(sim.bodyPos('lucina'));
-    const cloudRot = new THREE.Matrix3().setFromMatrix4(new THREE.Matrix4().makeRotationY(sim.t * 1.2e-5));
-    const camRelA = this.camAbs.clone().sub(sim.bodyPos('ausonia'));
-    const below = camRelA.len() < AUSONIA.radius + this.cloudAlt ? 1 : 0;
-    for (const mat of [this.ausoniaMat, this.cloudMat, this.atmosphere.material]) {
-      const u = mat.uniforms;
-      u.uPlanet.value.copy(aPos);
-      u.uSunDir.value.copy(sunDir);
-      if (u.uCloudRot) u.uCloudRot.value.copy(cloudRot);
-      if (u.uTime) u.uTime.value = this.elapsed;
-      if (u.uBelow) u.uBelow.value = below;
+    // Per-body uniforms: centre relative to the camera, direction of the Sun from the body.
+    const shipRef = s.ref;
+    for (const v of Object.values(this.bodies)) {
+      const bp = sim.bodyPos(v.id);
+      const toSun = bp.clone().scale(-1).normalize();
+      const sd = toThree(toSun);
+      const mats = [v.material, v.cloudMat, v.atmosphere?.material, v.ring?.material].filter(Boolean);
+      for (const mat of mats) {
+        const u = mat.uniforms;
+        if (u.uPlanet) u.uPlanet.value.copy(v.group.position);
+        if (u.uSunDir) u.uSunDir.value.copy(sd);
+        if (u.uTime) u.uTime.value = this.elapsed;
+      }
+      if (v.atmosphere) {
+        v.atmosphere.position.copy(v.group.position);
+        v.atmosphere.visible = v.group.visible && v.px > 2;
+      }
+      if (v.cloudMat) {
+        const rot = new THREE.Matrix3().setFromMatrix4(new THREE.Matrix4().makeRotationZ(sim.t * 2.0e-6));
+        v.cloudMat.uniforms.uCloudRot.value.copy(rot);
+        v.material.uniforms.uCloudRot.value.copy(rot);
+        const camR = this.camAbs.clone().sub(bp).len();
+        v.cloudMat.uniforms.uBelow.value = camR < v.body.radius + v.cloudAlt ? 1 : 0;
+      }
+      // Planetshine on airless moons (Earthshine on the Moon).
+      if (v.material.uniforms.uShine && v.body.parent && v.body.parent !== 'sun') {
+        const pp = sim.bodyPos(v.body.parent);
+        const toP = pp.clone().sub(bp).normalize();
+        const phase = 0.5 * (1 - toP.dot(toSun));
+        v.material.uniforms.uShine.value.set(0.05, 0.07, 0.11).multiplyScalar(phase * 0.8);
+      }
     }
-    this.atmosphere.position.copy(aPos);
-    this.lucinaMat.uniforms.uPlanet.value.copy(lPos);
-    this.lucinaMat.uniforms.uSunDir.value.copy(sunDir);
-    // Ausonia-shine on Lucina's night side.
-    const toA = aPos.clone().sub(lPos).normalize();
-    const phase = 0.5 * (1 + toA.dot(sunDir) * -1);
-    this.lucinaMat.uniforms.uEarthshine.value.set(0.05, 0.07, 0.11).multiplyScalar(phase * 0.6);
     // Light: eclipses and atmospheric reddening at the camera.
     let eclipse = 1;
+    const sunAbs = new V3(0, 0, 0);
+    const camToSun = sunAbs.clone().sub(this.camAbs).normalize();
     for (const b of Object.values(BODIES)) {
+      if (b.id === 'sun') continue;
       const rel = this.camAbs.clone().sub(sim.bodyPos(b.id));
-      const along = rel.dot(sim.sunDir);
+      const along = rel.dot(camToSun);
       if (along > 0) continue;
-      const perp = rel.clone().addScaled(sim.sunDir, -along).len();
+      const perp = rel.clone().addScaled(camToSun, -along).len();
+      if (perp > b.radius * 1.05) continue;
       eclipse *= smoothstep(b.radius * 0.992, b.radius * 1.012, perp);
     }
-    const tr = sunTransmittance(camRelA, sim.sunDir, AUSONIA);
+    const nb = BODIES[shipRef];
+    const camRelN = this.camAbs.clone().sub(sim.bodyPos(shipRef));
+    const tr = nb.atmosphere && (shipRef === 'earth' || shipRef === 'mars') ? sunTransmittance(camRelN, camToSun, nb) : [1, 1, 1];
     const sunColor = new THREE.Color(tr[0], tr[1], tr[2]);
-    if (eclipse < 1 && camRelA.len() > AUSONIA.radius + AUSONIA.atmosphere.height) sunColor.setRGB(1, 1, 1);
+    if (eclipse < 1 && camRelN.len() > nb.radius + 100e3) sunColor.setRGB(1, 1, 1);
+    // Sunlight falls with the square of the distance (1 at 1 AU).
+    const au = this.camAbs.len() / 1.495978707e11;
+    const solar = Math.min(3, 1 / Math.max(0.1, au * au));
     this.sun.color.copy(sunColor);
-    this.sun.intensity = 3.2 * eclipse;
-    // Planetshine from the nearest body.
-    const nearId = s.ref;
-    const nb = BODIES[nearId];
-    const toB = this.rel(sim.bodyPos(nearId));
+    this.sun.intensity = 3.2 * eclipse * Math.pow(solar, 0.5);
+    const toB = this.rel(sim.bodyPos(shipRef));
     const dist = toB.length();
     toB.normalize();
     const cover = 1 - Math.sqrt(Math.max(0, 1 - (nb.radius / Math.max(dist, nb.radius * 1.0001)) ** 2));
     const phaseB = 0.5 * (1 - toB.dot(sunDir));
-    const alt = camRelA.len() - AUSONIA.radius;
-    const daylight = smoothstep(-0.08, 0.15, camRelA.clone().normalize().dot(sim.sunDir));
-    const inAir = nearId === 'ausonia' ? 1 - smoothstep(15e3, 60e3, alt) : 0;
+    const alt = camRelN.len() - nb.radius;
+    const daylight = smoothstep(-0.08, 0.15, camRelN.clone().normalize().dot(camToSun));
+    const airTop = shipRef === 'earth' ? 60e3 : shipRef === 'mars' ? 40e3 : 0;
+    const inAir = airTop ? 1 - smoothstep(airTop * 0.25, airTop, alt) : 0;
     this.hemi.position.copy(toB).negate();
-    const groundCol = nearId === 'ausonia' ? new THREE.Color(0.22, 0.3, 0.42) : new THREE.Color(0.3, 0.3, 0.3);
-    this.hemi.groundColor.copy(groundCol).multiplyScalar(0.25 + 2.4 * cover * phaseB);
-    this.hemi.color.setRGB(0.012, 0.016, 0.026).lerp(new THREE.Color(0.35, 0.5, 0.75), inAir * daylight);
+    const groundCol = { earth: [0.22, 0.3, 0.42], mars: [0.45, 0.28, 0.16], moon: [0.3, 0.3, 0.3], sun: [0, 0, 0] }[shipRef] || [0.3, 0.28, 0.25];
+    this.hemi.groundColor.setRGB(...groundCol).multiplyScalar(0.25 + 2.4 * cover * phaseB);
+    const skyCol = shipRef === 'mars' ? new THREE.Color(0.6, 0.45, 0.32) : new THREE.Color(0.35, 0.5, 0.75);
+    this.hemi.color.setRGB(0.012, 0.016, 0.026).lerp(skyCol, inAir * daylight);
     this.hemi.intensity = 1.0 + inAir * daylight * 0.8;
     this.scene.background.setRGB(0, 0, 0);
     // Stars fade in daylight air.
     const starFade = 1 - inAir * daylight * 0.97;
-    const sunScreen = this.camera.position.clone().add(sunDir).project(this.camera);
-    const flare = this.profile.quality === 'low' ? 0 : eclipse * (1 - inAir * 0.4) * (sunScreen.z < 1 ? 1 : 0) * 0.9;
-    this.space.update(sunDir, starFade, sunColor, this.webgl.getPixelRatio(), flare);
+    const sunScreen = this.camera.position.clone().add(toThree(camToSun)).project(this.camera);
+    const flare = this.profile.quality === 'low' ? 0 : eclipse * (1 - inAir * 0.4) * (sunScreen.z < 1 ? 1 : 0) * 0.9 * Math.min(1, solar);
+    const sunAng = Math.atan(BODIES.sun.radius / Math.max(1, this.camAbs.len()));
+    this.space.update(toThree(camToSun), starFade, sunColor, this.webgl.getPixelRatio(), flare, sunAng);
+    this.updateDots(sim);
     // Environment for reflections.
-    this.updateEnvironment(toB, nb, cover * phaseB, sunDir);
+    this.updateEnvironment(toB, nb, cover * phaseB, toThree(camToSun));
     // Vessel
     const v = this.vessel;
     const shipAbs = sim.absolute(s.ref, s.pos);
     this.rel(shipAbs, v.root.position);
     quatToThree(s.q, v.root.quaternion);
-    const atmo = nearId === 'ausonia' ? Math.min(1, (sim.ship.dynPressure > 0 ? Math.exp(-Math.max(0, s.altitude) / 7000) : 0)) : 0;
+    const atmo = nb.atmosphere && s.dynPressure > 0 ? Math.min(1, Math.exp(-Math.max(0, s.altitude) / (nb.atmosphere.scaleHeight || 8000))) : 0;
     updateVessel(v, s, this.elapsed, atmo);
     v.root.visible = !s.destroyed && this.view !== 'map';
     // In the cockpit, hide the cabin shell around the eye (the panel and windows are 2D).
@@ -573,12 +619,10 @@ export class SceneRenderer {
       }
       if (view.meshes) updateSwarm(view, o, sim.t);
     }
-    // Surface sites
-    for (const [key, view, body] of [['spaceport', this.spaceport, 'ausonia'], ['lucerna', this.lucerna, 'lucina']]) {
-      const f = this.siteFrames[key];
-      const abs = sim.bodyPos(body).add(f.pos);
-      this.rel(abs, view.root.position);
-      view.root.visible = abs.clone().sub(this.camAbs).len() < 120e3;
+    // Surface sites (blinking lights only when close).
+    for (const { view } of this.sites) {
+      const wp = view.root.getWorldPosition(new THREE.Vector3());
+      view.root.visible = wp.length() < 150e3;
       if (view.root.visible) updateLights(view.lights, this.elapsed);
     }
     // Debris
@@ -590,6 +634,24 @@ export class SceneRenderer {
     this.updateOrbits(sim);
     // Exposure: a touch brighter in the dark side so the cockpit lights read.
     this.webgl.toneMappingExposure = 1.0;
+  }
+
+  updateDots(sim) {
+    const pos = this.bodyDots.geometry.attributes.position;
+    const col = this.bodyDots.geometry.attributes.color;
+    this.bodyDotIds.forEach((id, i) => {
+      const v = this.bodies[id];
+      const p = this.rel(sim.bodyPos(id));
+      // Keep the dot inside the depth range: same direction, closer.
+      const d = p.length();
+      if (d > 5e12) p.multiplyScalar(5e12 / d);
+      pos.setXYZ(i, p.x, p.y, p.z);
+      const k = id === 'sun' ? 0 : clamp(1.6 - v.px, 0, 1) * (id === 'venus' || id === 'jupiter' ? 1 : 0.75);
+      const c = { mars: [1, 0.6, 0.45], venus: [1, 0.97, 0.85], jupiter: [1, 0.92, 0.8], saturn: [1, 0.9, 0.7], neptune: [0.6, 0.7, 1], uranus: [0.7, 0.95, 1], moon: [0.9, 0.9, 0.9], earth: [0.6, 0.75, 1], mercury: [0.85, 0.8, 0.75] }[id] || [1, 1, 1];
+      col.setXYZ(i, c[0] * k, c[1] * k, c[2] * k);
+    });
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
   }
 
   hideNearEye(v, s) {
@@ -623,7 +685,7 @@ export class SceneRenderer {
     u.uBody.value.copy(toB);
     u.uSun.value.copy(sunDir);
     u.uBodySize.value = 0.2;
-    u.uBodyColor.value.set(body.id === 'ausonia' ? 0x3a5a86 : 0x777777).multiplyScalar(0.25 + lit * 1.5);
+    u.uBodyColor.value.set(body.id === 'earth' ? 0x3a5a86 : body.id === 'mars' ? 0x8a5a3a : 0x777777).multiplyScalar(0.25 + lit * 1.5);
     const rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 100, { size: 64 });
     this.envRT?.dispose();
     this.envRT = rt;
@@ -767,13 +829,17 @@ export class SceneRenderer {
       const el = elements(t.pos, t.vel, BODIES[t.ref].mu);
       add(conicPoints(el, 200), t.ref, 0xff7dd8);
     }
-    // Lucina's orbit
-    const ln = [];
-    for (let i = 0; i <= 256; i++) {
-      const a = (i / 256) * Math.PI * 2;
-      ln.push(new V3(Math.cos(a) * LUCINA.orbit.a, Math.sin(a) * LUCINA.orbit.a, 0));
+    // Orbits of the bodies around the current reference (or its parent).
+    const ref = sim.ship.ref;
+    const around = BODIES[ref].parent && BODIES[ref].parent !== 'sun' ? BODIES[ref].parent : ref;
+    for (const c of childrenOf(around)) {
+      const el2 = elementsOfBody(c.id, around, sim.t);
+      if (el2) add(conicPoints(el2, 256), around, c.id === 'moon' ? 0x9aa2ad : 0x6f7884);
     }
-    add(ln, 'ausonia', 0x777f8a);
+    if (around !== 'sun' && ref !== 'sun') {
+      const el3 = elementsOfBody(around, BODIES[around].parent, sim.t);
+      if (el3 && this.mapZoom > 400) add(conicPoints(el3, 256), BODIES[around].parent, 0x6f7884);
+    }
     const el = sim.info.el;
     if (el.e < 1) {
       const P = new V3().copy(el.ecc).normalize();
@@ -829,13 +895,24 @@ export class SceneRenderer {
   }
 
   getStats() {
-    return { triangles: this.webgl.info.render.triangles, calls: this.webgl.info.render.calls, chunks: this.ausonia.drawn + this.lucina.drawn + this.clouds.drawn };
+    let chunks = 0;
+    for (const v of Object.values(this.bodies)) chunks += (v.lod?.drawn || 0) + (v.clouds?.drawn || 0);
+    return { triangles: this.webgl.info.render.triangles, calls: this.webgl.info.render.calls, chunks };
   }
 
   dispose() {
     this.builder?.dispose();
     this.webgl.dispose();
   }
+}
+
+/** Osculating elements of a body around its parent (from the ephemeris). */
+function elementsOfBody(id, around, t) {
+  const b = BODIES[id];
+  if (!b || !around) return null;
+  const r = relativeState(id, around, t);
+  const mu = around === 'sun' ? BODIES.sun.mu : BODIES[around].mu + b.mu;
+  return elements(r.pos, r.vel, mu);
 }
 
 function rotateAround(v, axis, angle) {
