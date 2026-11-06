@@ -317,6 +317,9 @@ export class FlightModel {
       ailCmd = roll;
       rudCmd = yaw;
       f.pitchInt = 0;
+      f.nzDem = 0;
+      f.alphaPrev = null;
+      f.alphaDot = 0;
       f.rollInt = 0;
       f.bankHold = 0;
       f.flare = false;
@@ -334,6 +337,15 @@ export class FlightModel {
     const nzCmdBase = !fighter ? Math.cos(theta) / Math.max(cp, 0.5)
       : Math.cos(theta) * (ap <= 60 * DEG ? 1 / cp : ap < 90 * DEG ? 2 * (90 * DEG - ap) / (30 * DEG) : cp);
     let dnzCmd = pitch >= 0 ? pitch * (fbw.nzMax - 1) : pitch * (1 - fbw.nzMin);
+    // Fighter law: in a steady pull the pitch-rate term of C* adds Vco/V per g, so the demand is
+    // scaled to settle on the commanded load factor (keeping the rate term's damping), and the
+    // stick is shaped (first-order) so a step does not overshoot the g limit. Protections below
+    // act on the shaped demand without lag.
+    const kSS = fighter ? 1 + fbw.vco / V : 1;
+    if (fighter) {
+      f.nzDem = approach(f.nzDem ?? 0, dnzCmd, dt, fbw.cmdTau ?? 0.3);
+      dnzCmd = f.nzDem * kSS;
+    }
     // pitch attitude protection
     if (fbw.pitchMax != null && theta > fbw.pitchMax * DEG && dnzCmd > 0) dnzCmd *= Math.max(0, 1 - (theta - fbw.pitchMax * DEG) / (3 * DEG));
     if (fbw.pitchMin != null && theta < fbw.pitchMin * DEG && dnzCmd < 0) dnzCmd *= Math.max(0, 1 + (theta - fbw.pitchMin * DEG) / (3 * DEG));
@@ -341,13 +353,22 @@ export class FlightModel {
     const alphaDeg = this.alpha * RAD;
     const aProt = fbw.alphaProt,
       aMax = fbw.alphaMax;
-    if (alphaDeg > aProt - 2) {
+    // Fighter law: the limiter leads on alpha rate so a full pull stops at the limit instead of
+    // overshooting and oscillating about it at low speed.
+    let alphaEff = alphaDeg;
+    if (fighter) {
+      const aDot = f.alphaPrev == null ? 0 : (alphaDeg - f.alphaPrev) / dt;
+      f.alphaPrev = alphaDeg;
+      f.alphaDot = approach(f.alphaDot ?? 0, aDot, dt, 0.05);
+      alphaEff = alphaDeg + f.alphaDot * (fbw.alphaLead ?? 0.5);
+    }
+    if (alphaEff > aProt - 2) {
       const aCmd = aProt + Math.max(pitch, 0) * (aMax - aProt);
-      dnzCmd = Math.min(dnzCmd, (aCmd - alphaDeg) * 0.25);
+      dnzCmd = Math.min(dnzCmd, (aCmd - alphaEff) * 0.25);
     }
     // high speed protection
     if (this.iasKt > c.vmo + 6) dnzCmd = Math.max(dnzCmd, Math.min((this.iasKt - c.vmo - 6) * 0.02, 0.6));
-    dnzCmd = clamp(dnzCmd, fbw.nzMin - 1, fbw.nzMax - 1);
+    dnzCmd = clamp(dnzCmd, (fbw.nzMin - 1) * kSS, (fbw.nzMax - 1) * kSS);
     const nz = this.nz;
     // pitch rate expected in a steady coordinated turn is not a pilot demand
     const phiC = clamp(phi, -1.2, 1.2);
@@ -362,7 +383,7 @@ export class FlightModel {
       f.pitchInt = approach(f.pitchInt, 0, dt, 2);
     }
     // Gain scheduling: control surfaces grow more effective with dynamic pressure.
-    const kq = fbw.qRef ? clamp(fbw.qRef / Math.max(0.5 * this.env.rho * V * V, 1), 0.08, 2.5) : 1;
+    const kq = fbw.qRef ? clamp(fbw.qRef / Math.max(0.5 * this.env.rho * V * V, 1), 0.08, fbw.kqMax ?? 2.5) : 1;
     f.pitchInt = clamp(f.pitchInt + err * fbw.pitchKi * kq * dt, -1, 1);
     elevCmd = clamp(err * fbw.pitchKp * kq + f.pitchInt, -1, 1);
     // auto-trim: THS slowly takes over the elevator's average deflection
