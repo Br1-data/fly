@@ -12,7 +12,7 @@ const toLinear = (c) => (c < 0.04045 ? c * 0.0773993808 : Math.pow(c * 0.9478672
 const hexLinear = (hex) => [toLinear(((hex >> 16) & 255) / 255), toLinear(((hex >> 8) & 255) / 255), toLinear((hex & 255) / 255)];
 const PALETTE = Object.fromEntries(Object.entries({
   beach: 0xd8c99c, meadow: 0x6c8a42, dry: 0x9b9858, scrub: 0x5a6b3a,
-  alpine: 0x7b8452, forest: 0x2e4a28, pine: 0x263f2c, town: 0xa39a89,
+  alpine: 0x7b8452, town: 0xa39a89,
   rock: 0x8e877c, darkRock: 0x655f58, snow: 0xf0f3f6,
   seabedShallow: 0xd9cfa3, seabedMid: 0x6aa197, seabedDeep: 0x0c3a4a,
 }).map(([k, v]) => [k, hexLinear(v)]));
@@ -43,7 +43,7 @@ function shade(t, n, e, h, slope, color, extra, cover) {
   lerp3(color, PALETTE.dry, clamp(0.45 + variation * 0.55, 0, 1));
   lerp3(color, PALETTE.scrub, smoothstep(350, 900, h) * 0.6);
   lerp3(color, PALETTE.alpine, smoothstep(1150, 1650, h) * 0.7);
-  lerp3(color, h > 800 ? PALETTE.pine : PALETTE.forest, forest * 0.92);
+  // Woodland is coloured by the terrain shader, which sharpens extra[1] into a ragged tree line.
   lerp3(color, PALETTE.beach, 1 - smoothstep(1.2, 4.5, h));
   lerp3(color, PALETTE.town, clamp(city * 1.3, 0, 0.8));
   const rock = clamp(smoothstep(0.34, 0.95, slope) + smoothstep(1650, 2000, h + variation * 140), 0, 1);
@@ -164,12 +164,16 @@ export function buildTileData({ nn, ee, segments, treeSamples = 0, treeDensity =
   return { positions, colors, terrain, cover, normals, index: count < 65536 ? Uint16Array.from(index) : index, trees: treeSamples ? buildTrees(t, n0, e0, nn, ee, treeSamples * treeDensity) : null };
 }
 
-/** Tree instances: local 4×4 matrices (column-major, relative to the tile centre) and colours. */
-function buildTrees(t, n0, e0, nn, ee, samples) {
+/**
+ * Tree instances: local 4×4 matrices (column-major, relative to the centre n0, e0 of a square
+ * cell of the given size) and colours. `forestOnly` skips the scattered trees of the open
+ * country (the dense woodland cells near the aircraft leave those to the terrain tiles).
+ */
+export function buildTrees(t, n0, e0, nn, ee, samples, size = TILE, forestOnly = false) {
   const sets = { conifer: { matrices: [], colors: [] }, broadleaf: { matrices: [], colors: [] } };
   for (let j = 0; j < samples; j++) {
-    const n = n0 + (hash2(nn * 281 + j, ee * 17) - 0.5) * TILE;
-    const e = e0 + (hash2(nn * 53, ee * 109 + j) - 0.5) * TILE;
+    const n = n0 + (hash2(nn * 281 + j, ee * 17) - 0.5) * size;
+    const e = e0 + (hash2(nn * 53, ee * 109 + j) - 0.5) * size;
     const h = t.height(n, e);
     if (h < 6 || h > 1900 || t.airportSurface(n, e)) continue;
     const r1 = hash2(nn + j * 7, ee), r2 = hash2(j, nn * 31 + ee), r3 = hash2(ee * 13 + j, nn);
@@ -179,7 +183,7 @@ function buildTrees(t, n0, e0, nn, ee, samples) {
       conifer = h > 650 || r2 < 0.22;
       height = conifer ? 11 + r1 * 13 : 8 + r1 * 8;
       width = height * (conifer ? 0.42 : 0.75);
-    } else if (r3 < 0.07 && h < 650 && t.cityFactor(n, e) < 0.15) {
+    } else if (!forestOnly && r3 < 0.07 && h < 650 && t.cityFactor(n, e) < 0.15) {
       // Scattered Mediterranean trees in the open country: slender cypresses and olives.
       conifer = r2 < 0.45;
       height = conifer ? 10 + r1 * 8 : 5 + r1 * 3;

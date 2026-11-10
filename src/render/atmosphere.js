@@ -4,6 +4,7 @@
 // sky dome and the fogged landscape always meet without a visible seam.
 import * as THREE from 'three';
 import { clamp, DEG, rng, smoothstep } from '../core/math.js';
+import { getDetailTexture } from './textures.js';
 
 /** Uniforms shared by all atmosphere-aware materials (updated once per frame). */
 export const atmosphereUniforms = {
@@ -11,6 +12,8 @@ export const atmosphereUniforms = {
   fogSunDir: { value: new THREE.Vector3(0, 1, 0) },
   fogHeight: { value: new THREE.Vector3(0, 0, 1) }, // x = reference height, y = 1/scale height (0 = off), z = minimum factor
   fogRange: { value: new THREE.Vector2(0, 0) }, // horizon fade start/end distance (0 = off)
+  cloudShadow: { value: new THREE.Vector3(0, 1, 0) }, // x = darkening (0 = off), y = noise threshold, z = cloud base height
+  cloudShadowMap: { value: getDetailTexture() },
 };
 
 export const FOG_PARS_VERTEX = /* glsl */`
@@ -40,6 +43,18 @@ export const FOG_PARS_FRAGMENT = /* glsl */`
   uniform vec3 fogSunDir;
   uniform vec3 fogHeight;
   uniform vec2 fogRange;
+  uniform vec3 cloudShadow;
+  uniform sampler2D cloudShadowMap;
+  // Shadows of broken cloud on everything below the cloud base, cast along the sun direction.
+  // ponytail: a noise pattern with the layer's coverage, not the silhouettes of the actual
+  // puffs; render the cloud layer into a shadow texture if the mismatch ever shows.
+  float atmoCloudShade(vec3 rel) {
+    vec3 p = cameraPosition + rel;
+    if (cloudShadow.x <= 0.0 || p.y > cloudShadow.z) return 1.0;
+    vec2 q = p.xz + fogSunDir.xz * ((cloudShadow.z - p.y) / max(fogSunDir.y, 0.2));
+    float n = texture2D(cloudShadowMap, q / 9000.0).a * 0.6 + texture2D(cloudShadowMap, q / 2300.0).g * 0.4;
+    return 1.0 - cloudShadow.x * smoothstep(cloudShadow.y, cloudShadow.y + 0.1, n);
+  }
   vec3 atmoFogColor(vec3 dir) {
     return mix(fogColor, fogSun.rgb, fogSun.a * pow(max(dot(dir, fogSunDir), 0.0), 6.0));
   }
@@ -65,11 +80,14 @@ export const FOG_PARS_FRAGMENT = /* glsl */`
 #endif
 `;
 
-export const FOG_FRAGMENT = /* glsl */`
+const fogFragment = (colour) => /* glsl */`
 #ifdef USE_FOG
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, atmoFogColor(normalize(vFogWorld)), atmoFogFactor(vFogWorld));
+  gl_FragColor.rgb = mix(${colour}, atmoFogColor(normalize(vFogWorld)), atmoFogFactor(vFogWorld));
 #endif
 `;
+export const FOG_FRAGMENT = fogFragment('gl_FragColor.rgb * atmoCloudShade(vFogWorld)');
+/** For the clouds themselves, which must not receive their own shadows. */
+export const FOG_FRAGMENT_UNSHADED = fogFragment('gl_FragColor.rgb');
 
 /** Install the atmospheric fog into a built-in material; `patch` may edit the shader further. */
 export function applyAtmosphere(material, key = 'base', patch = null) {

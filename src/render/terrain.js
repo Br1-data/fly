@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { getTerrain } from '../world/terrain-height.js';
 import { applyAtmosphere } from './atmosphere.js';
-import { buildTileData, TILE } from './terrain-build.js';
+import { buildTileData, buildTrees, TILE } from './terrain-build.js';
 import { getDetailTexture, getMaterialTexture } from './textures.js';
 import { sceneryUniforms } from './materials.js';
 
@@ -19,8 +19,13 @@ export function getTerrainProfile(quality = 'medium') {
     radius: level === 'low' ? 3 : level === 'high' ? 6 : 5,
     segments: level === 'low' ? [24, 16, 8] : [64, 32, 8],
     treeSamples: level === 'low' ? 40 : level === 'high' ? 520 : 260,
+    // Dense woodland around the aircraft: cells either side of its own, tree samples per cell.
+    nearTrees: level === 'low' ? null : level === 'high' ? { radius: 4, samples: 480 } : { radius: 3, samples: 320 },
   };
 }
+
+/** Side (m) of the cells of dense woodland streamed around the aircraft. */
+const NEAR_CELL = 500;
 
 const TERRAIN_VERTEX_PARS = /* glsl */`
 attribute vec4 aTerrain;
@@ -50,6 +55,7 @@ varying vec3 vCover;
 varying vec3 vTerrainPos;
 varying vec3 vTerrainNormal;
 float terrainFar;
+float terrainBlend;
 // Texture detail relative to its own mean colour: adds grain while keeping the land-cover tint.
 // The second scale is rotated and the fine one fades with distance, which hides the tiling.
 vec3 terrainTex(sampler2D t, vec2 a, vec2 b) {
@@ -57,7 +63,9 @@ vec3 terrainTex(sampler2D t, vec2 a, vec2 b) {
   vec2 rb = vec2(0.8 * b.x - 0.6 * b.y, 0.6 * b.x + 0.8 * b.y);
   #ifdef TERRAIN_HQ
     float wa = mix(0.62, 0.1, terrainFar);
-    return (texture2D(t, a).rgb * wa + texture2D(t, rb).rgb * (1.0 - wa)) / mean;
+    // Two unrelated placements of the coarse scale, swapped by a noise mask, hide its repetition.
+    vec3 coarse = mix(texture2D(t, rb).rgb, texture2D(t, vec2(-0.28 * b.x - 0.96 * b.y, 0.96 * b.x - 0.28 * b.y) * 0.77 + 0.37).rgb, terrainBlend);
+    return (texture2D(t, a).rgb * wa + coarse * (1.0 - wa)) / mean;
   #else
     return texture2D(t, rb).rgb / mean;
   #endif
@@ -102,9 +110,9 @@ const TERRAIN_FRAGMENT = /* glsl */`
   vec3 base = diffuseColor.rgb;
   base *= 0.84 + 0.32 * d3.a;
   base *= 0.9 + 0.2 * d2.g;
-  float forest = vTerrain.y;
-  base *= mix(1.0, 0.55 + 0.85 * d2.b, forest);
-  float fw = vTerrain.x;
+  // The interpolated woodland cover is sharpened with noise into a ragged tree line.
+  float forest = smoothstep(0.3, 0.46, vTerrain.y + (d2.g - 0.5) * 0.3 + (d2.b - 0.5) * 0.12);
+  float fw = vTerrain.x * (1.0 - forest);
   vec2 q = wp;
   if (fw > 0.01) {
     float ca = cos(vTerrain.z), sa = sin(vTerrain.z);
@@ -133,6 +141,9 @@ const TERRAIN_FRAGMENT = /* glsl */`
     fc = mix(terrainLinear(vec3(0.58, 0.58, 0.37)), fc, detail);
     base = mix(base, fc * (0.9 + 0.2 * d2.g), fw);
   }
+  // Canopy: broadleaf green turning to dark pine with altitude, mottled by the crown noise.
+  vec3 canopy = mix(vec3(0.027, 0.068, 0.021), vec3(0.019, 0.05, 0.025), smoothstep(700.0, 900.0, vTerrainPos.y));
+  base = mix(base, canopy * (0.84 + 0.32 * d3.a) * (0.55 + 0.85 * d2.b), forest * 0.92);
   // Close range: material textures and relief normals by land cover.
   float camDist = length(vTerrainPos - cameraPosition);
   vec3 tn = normalize(vTerrainNormal);
@@ -140,6 +151,7 @@ const TERRAIN_FRAGMENT = /* glsl */`
   vec2 relief = (texture2D(tRockNormal, wp / 610.0).xy * 2.0 - 1.0) * (0.28 * wRock + 0.08);
   if (camDist < 4500.0) {
     terrainFar = smoothstep(120.0, 800.0, camDist);
+    terrainBlend = smoothstep(0.4, 0.6, d2.g);
     // Soft covers fade out early (their tiling would show); rock keeps its texture further.
     float nearFade = 1.0 - smoothstep(450.0, 1500.0, camDist);
     float rockFade = 1.0 - smoothstep(1800.0, 4500.0, camDist);
@@ -168,6 +180,15 @@ const TERRAIN_FRAGMENT = /* glsl */`
       relief += nr + ng;
     #endif
   }
+  #ifdef TERRAIN_HQ
+    if (forest > 0.02) {
+      // Crown relief: the canopy noise doubles as a height field, so the sun lights one side
+      // of every crown and woods read as trees from the air (mipmaps flatten it far away).
+      float cx = texture2D(uDetail, (wp + vec2(2.5, 0.0)) / 397.0).b;
+      float cy = texture2D(uDetail, (wp + vec2(0.0, 2.5)) / 397.0).b;
+      relief += vec2(d2.b - cx, d2.b - cy) * forest * 2.5;
+    }
+  #endif
   terrainNormalWorld = normalize(tn + vec3(relief.x, 0.0, -relief.y));
   base *= 0.9 + 0.2 * d1.r;
   diffuseColor.rgb = base;
@@ -236,6 +257,18 @@ function treeGeometry(kind) {
   return merged;
 }
 
+/**
+ * Foliage material: normals lean towards the sky, so crowns take the light like the canopy
+ * below them instead of turning black when seen against the sun.
+ */
+function treeMaterial(key, patch = null) {
+  return applyAtmosphere(new THREE.MeshLambertMaterial({ vertexColors: true }), key, (shader) => {
+    shader.vertexShader = shader.vertexShader.replace('#include <defaultnormal_vertex>', `#include <defaultnormal_vertex>
+      transformedNormal = normalize(transformedNormal + 1.3 * normalize(viewMatrix[1].xyz));`);
+    patch?.(shader);
+  });
+}
+
 export class TerrainTiles {
   constructor(scene, quality = 'medium') {
     this.scene = scene;
@@ -249,9 +282,23 @@ export class TerrainTiles {
     this.worker = null;
     this.workerFailed = false;
     this.material = createTerrainMaterial();
-    this.treeMaterial = applyAtmosphere(new THREE.MeshLambertMaterial({ vertexColors: true }), 'trees');
+    this.treeMaterial = treeMaterial('trees');
     this.treeGeometry = treeGeometry('conifer');
     this.broadleafGeometry = treeGeometry('broadleaf');
+    // Dense woodland near the aircraft: trees shrink into the ground towards the edge of
+    // the ring instead of popping; beyond it the canopy shading of the terrain takes over.
+    this.nearRange = { value: 0 };
+    this.nearMaterial = treeMaterial('near-trees', (shader) => {
+      shader.uniforms.uTreeRange = this.nearRange;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uTreeRange;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vec3 treeBase = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          transformed *= 1.0 - smoothstep(0.65 * uTreeRange, uTreeRange, distance(treeBase.xz, cameraPosition.xz));`);
+    });
+    this.nearCells = new Map();
+    this.nearQueue = [];
+    this.nearCenter = '';
     this.receiveShadow = false;
     this.setQuality(quality);
   }
@@ -263,6 +310,9 @@ export class TerrainTiles {
     this.quality = profile.quality;
     this.radius = profile.radius;
     this.center = '';
+    for (const group of this.nearCells.values()) this._removeTrees(group);
+    this.nearCells.clear();
+    this.nearCenter = '';
     // Medium/high: two texture scales, triplanar rock and close-range relief normals.
     this.material.defines = profile.quality === 'low' ? {} : { TERRAIN_HQ: '' };
     this.material.needsUpdate = true;
@@ -279,6 +329,7 @@ export class TerrainTiles {
   }
 
   plan(n, e) {
+    this._planTrees(n, e);
     const ni = Math.floor(n / TILE), ei = Math.floor(e / TILE);
     const center = `${ni}:${ei}:${this.quality}`;
     if (this.center === center) return;
@@ -305,17 +356,70 @@ export class TerrainTiles {
   }
 
   remove(key, tile) {
-    this.scene.remove(tile.group);
     tile.mesh.geometry.dispose();
+    this._removeTrees(tile.group);
+    this.tiles.delete(key);
+  }
+
+  _removeTrees(group) {
+    this.scene.remove(group);
     // Per-tile instance attributes have their own GPU buffers. Shared geometry and
     // materials stay alive until the entire terrain streamer is disposed.
-    tile.group.traverse((object) => { if (object.isInstancedMesh) object.dispose(); });
-    this.tiles.delete(key);
+    group.traverse((object) => { if (object.isInstancedMesh) object.dispose(); });
+  }
+
+  _addTrees(group, trees, material) {
+    for (const [set, shape] of [[trees.conifer, this.treeGeometry], [trees.broadleaf, this.broadleafGeometry]]) {
+      const count = set.matrices.length / 16;
+      if (!count) continue;
+      const mesh = new THREE.InstancedMesh(shape, material, count);
+      mesh.instanceMatrix.array.set(set.matrices);
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(set.colors, 3);
+      mesh.computeBoundingSphere();
+      group.add(mesh);
+    }
+  }
+
+  /** Queues the woodland cells around the aircraft, nearest first, and drops the far ones. */
+  _planTrees(n, e) {
+    const ci = Math.floor(n / NEAR_CELL), cj = Math.floor(e / NEAR_CELL);
+    const center = `${ci}:${cj}`;
+    if (center === this.nearCenter) return;
+    this.nearCenter = center;
+    const radius = this.profile.nearTrees ? this.profile.nearTrees.radius : -1;
+    this.nearRange.value = radius * NEAR_CELL;
+    const wanted = new Set();
+    this.nearQueue = [];
+    for (let dn = -radius; dn <= radius; dn++) {
+      for (let de = -radius; de <= radius; de++) {
+        const key = `${ci + dn}:${cj + de}`;
+        wanted.add(key);
+        if (!this.nearCells.has(key)) this.nearQueue.push({ key, nn: ci + dn, ee: cj + de, priority: dn * dn + de * de });
+      }
+    }
+    for (const [key, group] of this.nearCells) {
+      if (wanted.has(key)) continue;
+      this._removeTrees(group);
+      this.nearCells.delete(key);
+    }
+    this.nearQueue.sort((a, b) => a.priority - b.priority);
+  }
+
+  /** Builds one queued woodland cell (a millisecond or two, so one per frame on this thread). */
+  _buildTreeCell() {
+    const job = this.nearQueue.shift();
+    if (!job) return;
+    const n0 = (job.nn + 0.5) * NEAR_CELL, e0 = (job.ee + 0.5) * NEAR_CELL;
+    const group = new THREE.Group();
+    group.position.set(e0, 0, -n0);
+    this._addTrees(group, buildTrees(this.terrain, n0, e0, job.nn, job.ee, this.profile.nearTrees.samples, NEAR_CELL, true), this.nearMaterial);
+    this.scene.add(group);
+    this.nearCells.set(job.key, group);
   }
 
   /** Tiles waiting to be generated or currently being generated. */
   get busy() {
-    return this.queue.length + this.inFlight.size;
+    return this.queue.length + this.inFlight.size + this.nearQueue.length;
   }
 
   _jobData(job) {
@@ -363,6 +467,7 @@ export class TerrainTiles {
    * builds one tile synchronously, as before.
    */
   stream(parallel = 2) {
+    this._buildTreeCell();
     const worker = this._worker();
     if (!worker) {
       if (this.queue.length) this.buildOne();
@@ -415,17 +520,7 @@ export class TerrainTiles {
     const group = new THREE.Group();
     group.position.set(e0, 0, -n0);
     group.add(mesh);
-    if (data.trees) {
-      for (const [set, shape] of [[data.trees.conifer, this.treeGeometry], [data.trees.broadleaf, this.broadleafGeometry]]) {
-        const count = set.matrices.length / 16;
-        if (!count) continue;
-        const trees = new THREE.InstancedMesh(shape, this.treeMaterial, count);
-        trees.instanceMatrix.array.set(set.matrices);
-        trees.instanceColor = new THREE.InstancedBufferAttribute(set.colors, 3);
-        trees.computeBoundingSphere();
-        group.add(trees);
-      }
-    }
+    if (data.trees) this._addTrees(group, data.trees, this.treeMaterial);
     const old = this.tiles.get(key);
     if (old) this.remove(key, old);
     this.scene.add(group);
@@ -438,6 +533,10 @@ export class TerrainTiles {
     this.inFlight.clear();
     this.inFlightKeys.clear();
     for (const [key, tile] of this.tiles) this.remove(key, tile);
+    for (const group of this.nearCells.values()) this._removeTrees(group);
+    this.nearCells.clear();
+    this.nearQueue = [];
+    this.nearMaterial.dispose();
     this.material.dispose();
     this.treeGeometry.dispose();
     this.broadleafGeometry.dispose();

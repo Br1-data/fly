@@ -612,6 +612,9 @@ export class SceneRenderer {
     this.water.update(camera, sky, this.elapsed, lightAmbient);
     const layer = sim.atm.weather.clouds?.find((c) => c.coverage > 0) || null;
     this.cloudLayer.update(layer, camera, dt, { dir: sky.lightDir, color: sky.lightColor, intensity: this.sun.intensity / 3.1, ambient: lightAmbient });
+    // Broken cloud shades the landscape in daylight (medium/high); a full deck already dims the sun.
+    const shade = layer && this.profile.quality !== 'low' ? clamp(layer.coverage * 5, 0, 1) * (1 - overcast) * smoothstep(0.04, 0.3, sky.sunDir.y) : 0;
+    atmosphereUniforms.cloudShadow.value.set(0.45 * shade, 0.8 - 0.55 * (layer?.coverage || 0), (layer?.baseFt || 0) * 0.3048);
     this.updateEnvironmentMap(sim.timeOfDay, overcast + cloudDensity);
     const flare = this.profile.quality === 'low' ? 0
       : smoothstep(-0.02, 0.08, sky.sunDir.y) * (1 - overcast) * (1 - cloudDensity) * (1 - mist);

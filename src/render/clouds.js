@@ -2,7 +2,7 @@
 // (bright tops, shaded bases, silver lining against the light). Clouds are anchored to a world
 // grid so they never jump when the aircraft moves; an overcast layer adds a continuous deck.
 import * as THREE from 'three';
-import { FOG_FRAGMENT, FOG_PARS_FRAGMENT, FOG_PARS_VERTEX, FOG_VERTEX, fogUniforms } from './atmosphere.js';
+import { FOG_FRAGMENT_UNSHADED as FOG_FRAGMENT, FOG_PARS_FRAGMENT, FOG_PARS_VERTEX, FOG_VERTEX, fogUniforms } from './atmosphere.js';
 import { getCloudTexture, getDetailTexture } from './textures.js';
 import { clamp, hash2 } from '../core/math.js';
 
