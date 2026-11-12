@@ -199,6 +199,45 @@
 .fu-mini { padding: 3px 6px; font-size: 11px; border-radius: 6px; }
 .fu-navactions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .fu-navactions button { font-size: 12px; padding: 6px 9px; }
+/* Guide to the commands of the flight screen (F8). */
+.fu-keysbtn.on { background: #1f6fd6; border-color: #7fd0ff; }
+.fu-keys {
+  position: absolute;
+  left: calc(8px + env(safe-area-inset-left));
+  top: calc(52px + env(safe-area-inset-top));
+  width: 380px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100% - 70px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(6, 13, 24, 0.92);
+  border: 1px solid rgba(140, 180, 230, 0.3);
+  backdrop-filter: blur(6px);
+  display: none;
+  font-size: 12px;
+  z-index: 4;
+}
+.fu-keys.open { display: block; }
+.fu-keys h3 { margin: 10px 0 4px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #ffd34a; }
+.fu-keys h3:first-of-type { color: #3cff8a; }
+.fu-keysintro { margin: 0 0 4px; color: var(--muted); }
+.fu-keylist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.fu-key { line-height: 1.35; }
+.fu-key kbd {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #dff1ff;
+  background: rgba(127, 208, 255, 0.14);
+  border: 1px solid rgba(127, 208, 255, 0.35);
+}
+.fu-key b { margin-right: 6px; color: #9fd8ff; }
+.fu-key span { color: var(--text); }
 .fu-maplabel {
   position: absolute;
   left: 0;
@@ -226,6 +265,7 @@
   .fu-gauges { grid-template-columns: 1fr; }
   .fu-dock { width: 130px; height: 130px; }
   .fu-title { display: none; }
+  .fu-keyslabel { display: none; }
 }
 /* Touch devices: the quick buttons of the touch layer replace NAV / MAPPA / VISTA of the top
    bar; the navball sits between the sticks (or above them on narrow portrait screens). */
@@ -241,6 +281,10 @@
 .touch-device .fu-bottom { padding: 4px 6px; bottom: calc(14px + env(safe-area-inset-bottom)); }
 .touch-device .fu-mission { left: 50%; transform: translateX(-50%); bottom: auto; top: calc(58px + env(safe-area-inset-top)); width: min(260px, calc(100vw - 2 * min(230px, calc(50vw - 14px)) - 36px)); max-height: 24vh; overflow: auto; font-size: 11px; }
 .touch-device .fu-nav { width: min(360px, calc(100vw - 16px)); max-height: calc(100% - 64px - 40vh); }
+/* On touch screens the guide covers the sticks while it is open (the flight goes on). */
+.touch-device .fu.keys-open { z-index: 26; }
+.touch-device .fu-keys { left: 50%; transform: translateX(-50%); top: calc(58px + env(safe-area-inset-top)); bottom: calc(8px + env(safe-area-inset-bottom)); width: min(560px, calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right))); max-width: none; max-height: none; }
+.touch-device .fu-keyslabel { display: none; }
 .touch-device .fu-toasts { top: calc(30vh + 60px); }
 @media (max-width: 699px) and (orientation: portrait) {
   .touch-device .fu-box { max-height: 26vh; }

@@ -50,6 +50,7 @@ const BINDINGS = [
   ['Interfaccia', 'Simboli HUD', ['Shift+KeyU'], '@hud-toggle'],
   ['Interfaccia', 'Riavvia', ['Ctrl+Semicolon'], '@restart'],
   ['Interfaccia', 'Ripristina vista', ['Backspace'], '@reset-view'],
+  ['Interfaccia', 'Guida ai comandi in volo', ['F8'], '@keys'],
   ['Interfaccia', 'Aiuto e glossario', ['F12'], '@help'],
 ];
 const HELD = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyI', 'KeyK', 'KeyJ', 'KeyL', 'KeyH', 'KeyN', 'Equal', 'Minus', 'F2', 'F3', 'NumpadAdd', 'NumpadSubtract', 'KeyF', 'KeyB']);

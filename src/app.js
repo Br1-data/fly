@@ -215,6 +215,7 @@ export class App {
     this.flightSim.paused = false;
     this.ui.hide();
     this.ui.toggleNav(false);
+    this.ui.toggleKeys(false);
     this.runner = null;
     this.mission = null;
     this._setupMenuScene();
@@ -333,6 +334,7 @@ export class App {
         break;
       case 'menu':
         if (this.ui.navOpen) this.ui.toggleNav(false);
+        else if (this.ui.keysOpen) this.ui.toggleKeys(false);
         else if (this.view === 'map') this._setView(this._lastFlightView || 'chase');
         else this.openPauseMenu();
         break;
@@ -353,6 +355,9 @@ export class App {
         break;
       case 'nav':
         this.ui.toggleNav();
+        break;
+      case 'keys':
+        this.ui.toggleKeys();
         break;
       case 'panel-cycle':
         this.ui.cycleMode();

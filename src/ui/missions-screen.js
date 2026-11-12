@@ -79,6 +79,7 @@ export class MissionsScreen {
         r ? h('div.brief-best', 'Miglior risultato: ', stars(r.stars || 0), ` ${r.best ?? r.score ?? 0} punti`) : null,
         h('div.brief-text', paras.map((p) => h('p', p.trim()))),
         m.objectivesPreview ? h('ul.brief-objectives', m.objectivesPreview.map((o) => h('li', o))) : null,
+        m.controls?.length ? h('div.brief-controls', h('h3', 'Comandi utili'), h('ul', m.controls.map((c) => h('li', h('kbd', c.keys), ' ', c.text))), h('p.muted', 'In volo li ritrovi con F8 o con il pulsante ⓘ COMANDI, insieme alla spiegazione di tutti i pulsanti della schermata.')) : null,
         h('div.brief-actions', button('Inizia la missione 🚀', () => this.start(m), 'primary big')),
       ),
     );

@@ -7,6 +7,7 @@ import { SAS_MODES } from '../sim/assist.js';
 import { orbitalFrame } from '../sim/orbit.js';
 import { BODIES, bodySpin, bodyOrientation } from '../sim/system.js';
 import { fmtTime, WARP_LEVELS } from '../sim/simulation.js';
+import { TOP_BUTTONS, SAS_HELP, INSTRUMENTS, PILOTING, tip } from './flight-commands.js';
 
 const km = (m) => (Math.abs(m) >= 1e7 ? `${num(m / 1e3, 0)} km` : Math.abs(m) >= 1e5 ? `${num(m / 1e3, 1)} km` : Math.abs(m) >= 1e4 ? `${num(m / 1e3, 2)} km` : `${num(m, 0)} m`);
 const dist = (m) => (m >= 1.4959787e10 ? `${num(m / 1.495978707e11, 3)} UA` : m >= 1e6 ? `${num(m / 1e3, 0)} km` : m >= 1e4 ? `${num(m / 1e3, 1)} km` : m >= 100 ? `${num(m, 0)} m` : `${num(m, 1)} m`);
@@ -23,18 +24,20 @@ export class FlightUI {
     this.mode = 'full';
     this.showHud = true;
     this.navOpen = false;
+    this.keysOpen = false;
     this.el = h('div.fu');
     // Top bar
     this.timeEl = h('span.fu-time');
     this.warpEl = h('span.fu-warp');
     this.titleEl = h('span.fu-title');
     this.top = h('div.fu-top',
-      h('button.fu-btn.fu-menu', { type: 'button', onclick: () => app.openPauseMenu(), 'aria-label': 'Menu e pausa (Esc)' }, '☰'),
+      h('button.fu-btn.fu-menu', { type: 'button', onclick: () => app.openPauseMenu(), 'aria-label': 'Menu e pausa (Esc)', title: tip(TOP_BUTTONS.menu) }, '☰'),
       this.titleEl, h('div.spacer'), this.warpEl, this.timeEl,
-      h('button.fu-btn.fu-opt.fu-optnav', { type: 'button', onclick: () => app.onAction('nav'), 'aria-label': 'Computer di navigazione (O)' }, 'NAV'),
-      h('button.fu-btn.fu-opt.fu-optmap', { type: 'button', onclick: () => app.onAction('map'), 'aria-label': 'Mappa orbitale (M)' }, 'MAPPA'),
-      h('button.fu-btn.fu-opt', { type: 'button', onclick: () => app.onAction('view-next'), 'aria-label': 'Cambia vista (C)' }, 'VISTA'),
-      h('button.fu-btn.fu-help', { type: 'button', onclick: () => app.openHelp(), 'aria-label': 'Aiuto e glossario (F12)' }, '?'));
+      h('button.fu-btn.fu-opt.fu-optnav', { type: 'button', onclick: () => app.onAction('nav'), 'aria-label': 'Computer di navigazione (O)', title: tip(TOP_BUTTONS.nav) }, 'NAV'),
+      h('button.fu-btn.fu-opt.fu-optmap', { type: 'button', onclick: () => app.onAction('map'), 'aria-label': 'Mappa orbitale (M)', title: tip(TOP_BUTTONS.map) }, 'MAPPA'),
+      h('button.fu-btn.fu-opt', { type: 'button', onclick: () => app.onAction('view-next'), 'aria-label': 'Cambia vista (C)', title: tip(TOP_BUTTONS.view) }, 'VISTA'),
+      this.keysBtn = h('button.fu-btn.fu-keysbtn', { type: 'button', onclick: () => this.toggleKeys(), 'aria-label': 'Guida ai comandi (F8)', 'aria-expanded': 'false', title: tip(TOP_BUTTONS.keys) }, h('span.fu-keysicon', 'ⓘ'), h('span.fu-keyslabel', ' COMANDI')),
+      h('button.fu-btn.fu-help', { type: 'button', onclick: () => app.openHelp(), 'aria-label': 'Aiuto e glossario (F12)', title: tip(TOP_BUTTONS.help) }, '?'));
     // Left: orbit / surface
     this.orbitBox = h('div.fu-box.fu-orbit');
     // Right: target / docking
@@ -45,12 +48,12 @@ export class FlightUI {
     this.ballInfo = h('div.fu-ballinfo');
     this.sasBar = h('div.fu-sas');
     for (const m of SAS_MODES) {
-      const b = h('button.fu-sasbtn', { type: 'button', title: `${m.name}`, onclick: () => app.flightSim.command('sasMode', m.id) }, m.label);
+      const b = h('button.fu-sasbtn', { type: 'button', title: tip(SAS_HELP[m.id]) || m.name, onclick: () => app.flightSim.command('sasMode', m.id) }, m.label);
       b.dataset.mode = m.id;
       this.sasBar.appendChild(b);
     }
-    this.sasToggle = h('button.fu-sasbtn.fu-sason', { type: 'button', onclick: () => app.flightSim.command('sas') }, 'SAS');
-    this.rcsToggle = h('button.fu-sasbtn.fu-sason', { type: 'button', onclick: () => app.flightSim.command('rcs') }, 'RCS');
+    this.sasToggle = h('button.fu-sasbtn.fu-sason', { type: 'button', onclick: () => app.flightSim.command('sas'), title: tip(SAS_HELP.sas) }, 'SAS');
+    this.rcsToggle = h('button.fu-sasbtn.fu-sason', { type: 'button', onclick: () => app.flightSim.command('rcs'), title: tip(SAS_HELP.rcs) }, 'RCS');
     this.sasBar.prepend(this.sasToggle, this.rcsToggle);
     this.gauges = h('div.fu-gauges');
     this.bottom = h('div.fu-bottom', h('div.fu-ballwrap', this.ball, this.ballInfo), h('div.fu-right', this.sasBar, this.gauges));
@@ -60,8 +63,9 @@ export class FlightUI {
     this.flashEl = h('div.fu-flash');
     this.hudCanvas = h('canvas.fu-hud');
     this.navEl = h('div.fu-nav');
+    this.keysEl = h('div.fu-keys', { role: 'dialog', 'aria-label': 'Guida ai comandi' });
     this.mapLabels = h('div.fu-maplabels');
-    this.el.append(this.hudCanvas, this.mapLabels, this.top, this.orbitBox, this.targetBox, this.bottom, this.warnEl, this.toasts, this.missionEl, this.flashEl, this.navEl);
+    this.el.append(this.hudCanvas, this.mapLabels, this.top, this.orbitBox, this.targetBox, this.bottom, this.warnEl, this.toasts, this.missionEl, this.flashEl, this.navEl, this.keysEl);
     root.appendChild(this.el);
     this.ctx = this.ball.getContext('2d');
     this.hctx = this.hudCanvas.getContext('2d');
@@ -86,12 +90,14 @@ export class FlightUI {
     this.flashEl.classList.remove('show');
     this.navOpen = false;
     this.renderNav();
+    this.toggleKeys(false);
     this.show();
   }
 
   setMission(runner) {
     this.runner = runner;
     this.missionEl.hidden = !runner;
+    if (runner) this.toast(this.app.touchMode ? 'Tocca ⓘ per la guida ai comandi di questa missione' : 'Premi F8 (o ⓘ COMANDI) per la guida ai comandi di questa missione', 'info', 6);
   }
 
   cycleMode() {
@@ -102,7 +108,49 @@ export class FlightUI {
 
   toggleNav(force) {
     this.navOpen = force ?? !this.navOpen;
+    if (this.navOpen && this.keysOpen) this.toggleKeys(false);
     this.renderNav();
+  }
+
+  /** Guide to the commands of this screen and of the current mission (F8). */
+  toggleKeys(force) {
+    this.keysOpen = force ?? !this.keysOpen;
+    if (this.keysOpen && this.navOpen) this.toggleNav(false);
+    this.keysEl.classList.toggle('open', this.keysOpen);
+    this.el.classList.toggle('keys-open', this.keysOpen);
+    this.keysBtn.classList.toggle('on', this.keysOpen);
+    this.keysBtn.setAttribute('aria-expanded', String(this.keysOpen));
+    clear(this.keysEl);
+    if (this.keysOpen) this.renderKeys();
+  }
+
+  renderKeys() {
+    const touch = !!this.app.touchMode;
+    const mission = this.app.runner ? this.app.mission : null;
+    const item = (keys, label, text) => h('li.fu-key', keys ? h('kbd', keys) : null, label ? h('b', label) : null, h('span', text));
+    const section = (title, items) => (items.length ? [h('h3', title), h('ul.fu-keylist', items)] : []);
+    const sas = (id, label) => item(SAS_HELP[id].keys, label || SAS_HELP[id].label, SAS_HELP[id].text);
+    const sasModes = Object.keys(SAS_HELP).filter((id) => id !== 'sas' && id !== 'rcs');
+    const labels = Object.fromEntries([...this.sasBar.querySelectorAll('[data-mode]')].map((b) => [b.dataset.mode, b.textContent]));
+    const top = touch ? ['menu', 'keys', 'help'] : ['menu', 'nav', 'map', 'view', 'keys', 'help'];
+    this.keysEl.append(
+      h('div.fu-head', 'Guida ai comandi', h('button.fu-mini', { type: 'button', onclick: () => this.toggleKeys(false), 'aria-label': 'Chiudi la guida ai comandi' }, '✕')),
+      h('p.fu-keysintro', touch ? 'Cosa fanno i pulsanti e gli strumenti della schermata. Il volo continua mentre leggi.' : 'Cosa fanno i pulsanti e gli strumenti della schermata, con i tasti. Il volo continua mentre leggi: F8 chiude la guida.'),
+      ...(mission?.controls?.length ? section(`In questa missione · ${mission.title}`, mission.controls.map((c) => item(c.keys, null, c.text))) : []),
+      ...section('Pulsanti in alto', top.map((id) => item(touch ? '' : TOP_BUTTONS[id].keys, touch && id === 'keys' ? 'ⓘ' : TOP_BUTTONS[id].label, TOP_BUTTONS[id].text))),
+      ...(touch ? section('Pulsanti touch', [
+        item('', 'SAS · RCS', 'Accendono o spengono stabilizzazione e propulsori di manovra.'),
+        item('', 'STOP', 'Tieni premuto per annullare la velocità relativa al bersaglio.'),
+        item('', 'AZIONE', 'Separa lo stadio, apre il paracadute o sgancia il veicolo.'),
+        item('', 'VISTA', TOP_BUTTONS.view.text),
+        item('', 'MAPPA', TOP_BUTTONS.map.text),
+        item('', 'NAV', TOP_BUTTONS.nav.text),
+        item('', '⏪ · ⏩', 'Rallenta o accelera il tempo.'),
+      ]) : []),
+      ...section('SAS e RCS', [sas('sas'), sas('rcs'), ...sasModes.map((id) => sas(id, labels[id]))]),
+      ...section('Strumenti', INSTRUMENTS.map((i) => item('', i.label, i.text))),
+      ...section(touch ? 'Pilotaggio (touch · tastiera)' : 'Pilotaggio', PILOTING.filter((p) => !touch || p.touch).map((p) => item(touch ? p.touch : p.keys, null, touch ? `${p.text} (Tastiera: ${p.keys})` : p.text))),
+    );
   }
 
   flash(text) {

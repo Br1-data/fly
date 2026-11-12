@@ -64,6 +64,10 @@ try {
   await page.getByRole('button', { name: 'Elimina nodo' }).click();
   check('Nodo eliminato', await sim(() => !window.__cieli.flightSim.node));
   await page.keyboard.press('KeyO');
+  await page.keyboard.press('F8');
+  check('Guida ai comandi (F8)', await page.locator('.fu-keys.open').count() === 1 && await page.locator('.fu-keys li').count() > 20);
+  await page.keyboard.press('F8');
+  check('Guida ai comandi chiusa', await page.locator('.fu-keys.open').count() === 0);
   await page.keyboard.press('KeyM');
   check('Mappa orbitale', await sim(() => window.__cieli.view === 'map'));
   await page.screenshot({ path: path.join(output, 'map.png') });

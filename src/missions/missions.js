@@ -428,6 +428,29 @@ export const MISSIONS = [
   },
 ];
 
+// Commands to use in each mission, shown in the briefing and in the in-flight "Comandi"
+// panel (F8): [keys, what they do here].
+const MISSION_CONTROLS = {
+  'rcs-intro': [['I/K · J/L · H/N', 'Traslazione RCS verso gli anelli: piccoli impulsi'], ['F (tieni premuto)', 'Annulla la velocità relativa alla stazione'], ['Y', 'Assistenza al volo: mantiene ferma la velocità relativa'], ['C', 'Cambia vista per vedere meglio gli anelli']],
+  stabilize: [['T', 'Accende il SAS (pulsante SAS)'], ['1', 'STAB: ferma la rotazione'], ['2', 'PRO: punta prograde'], ['8', 'TGT: punta la stazione']],
+  'dock-basic': [['Maiusc+8', 'PORTA: allinea alla porta di prua'], ['H / N', 'Avanti / indietro verso la porta (max 0,3 m/s)'], ['I/K · J/L', 'Centra la croce nel riquadro di attracco'], ['F (tieni premuto)', 'Annulla la velocità relativa se vai troppo veloce']],
+  'dock-zenith': [['Tab · Maiusc+T', 'Bersaglio e porta di attracco (zenitale)'], ['8', 'TGT: punta la stazione mentre ti sposti'], ['I/K · J/L · H/N', 'Traslazione RCS attorno ai pannelli'], ['Maiusc+8', 'PORTA: allinea alla porta zenitale'], ['F (tieni premuto)', 'Ferma la deriva relativa']],
+  debris: [['Y', 'Assistenza al volo: la manetta imposta la velocità'], ['I/K · J/L · H/N', 'Traslazione RCS tra i frammenti'], ['F (tieni premuto)', 'Frena rispetto al relitto'], ['8', 'TGT: punta il relitto al centro']],
+  'raise-orbit': [['O', 'NAV: «Alza l’apoasse», poi «Esegui (autopilota)»'], ['2', 'PRO: punta prograde per accendere a mano'], ['Z · X', 'Manetta al massimo · motore spento'], ['. · /', 'Warp fino alla manovra · tempo reale'], ['M', 'MAPPA: controlla apoasse e periasse']],
+  rendezvous: [['O', 'NAV: «Rendezvous col bersaglio», poi «Esegui»'], ['.', 'Warp: si ferma prima del nodo'], ['3', 'RETRO: frena rispetto al bersaglio (sfera su BERSAGLIO)'], ['Z · X', 'Accendi e spegni il motore'], ['Maiusc+8 · H/N', 'Allineamento alla porta e avvicinamento finale']],
+  reentry: [['O', 'NAV: «Rientro / deorbita», poi «Esegui»'], ['Spazio', 'Sgancia il modulo di servizio, poi apre il paracadute'], ['3', 'RETRO: scudo termico avanti durante il rientro'], ['.', 'Warp fino al rientro']],
+  launch: [['Z', 'Manetta al massimo per il decollo'], ['Maiusc+A', 'Autopilota di ascesa: esegue la virata gravitazionale'], ['W/S · A/D', 'Inclina verso est a mano'], ['Spazio', 'Separa il primo stadio'], ['M', 'MAPPA: controlla il periasse']],
+  grottaglie: [['W/S · A/D · Q/E', 'Beccheggio, rollio e imbardata dello spazioplano'], ['G', 'Estrai il carrello sotto i 1.000 m'], ['B (tieni premuto)', 'Freni delle ruote dopo il contatto'], ['C', 'Vista cockpit per allineare la pista']],
+  'moon-landing': [['3', 'RETRO: motore contro il moto per frenare'], ['Maiusc+6', 'VERT: verticale locale per toccare il suolo'], ['V', 'Controllo velocità verticale: manetta al centro = stazionario'], ['= / -', 'Più o meno spinta'], ['G', 'Gambe di atterraggio']],
+  'moon-pdi': [['3', 'RETRO: frena la velocità orizzontale'], ['Z · = / -', 'Manetta al massimo e regolazione'], ['Maiusc+6', 'VERT: verticale sotto i 100 m/s'], ['V', 'Controllo velocità verticale per la discesa finale'], ['G', 'Gambe di atterraggio']],
+  'moon-ascent': [['Spazio', 'Separa lo stadio di salita'], ['Z', 'Manetta al massimo'], ['Maiusc+6 · W/S', 'Sali in verticale, poi inclinati verso est'], ['2', 'PRO: segui il prograde una volta in volo'], ['M', 'MAPPA: periasse oltre 15 km']],
+  tli: [['O', 'NAV: «Trasferimento verso il bersaglio», poi «Esegui»'], ['.', 'Warp durante i tre giorni di viaggio'], ['O', 'Nella sfera lunare: «Circolarizza al periasse»'], ['M', 'MAPPA: segui l’incontro con la Luna']],
+  tei: [['O', 'NAV: «Ritorno al pianeta madre», poi «Esegui»'], ['.', 'Warp fino alla Terra'], ['Spazio', 'Sgancia il modulo di servizio, poi paracadute'], ['3', 'RETRO: scudo termico avanti']],
+  'mars-transfer': [['O', 'NAV: «Trasferimento verso il bersaglio» e «Correzione di rotta»'], ['. · ,', 'Warp fino a ×1.000.000 e ritorno'], ['O', 'All’arrivo: «Circolarizza al periasse» per la cattura'], ['M', 'MAPPA: segui il viaggio interplanetario']],
+  phobos: [['O', 'NAV: «Allinea il piano al bersaglio», poi «Rendezvous col bersaglio»'], ['Invio', 'Esegue la manovra con l’autopilota'], ['3', 'RETRO: frena rispetto a Phobos'], ['.', 'Warp fino al nodo']],
+};
+for (const m of MISSIONS) m.controls = (MISSION_CONTROLS[m.id] || []).map(([keys, text]) => ({ keys, text }));
+
 function angleTo(sim, dir) {
   const f = sim.ship.forward(new V3());
   return (Math.acos(Math.max(-1, Math.min(1, f.dot(dir.clone().normalize())))) * 180) / Math.PI;

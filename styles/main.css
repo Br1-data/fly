@@ -676,6 +676,12 @@ ul.specs li {
   line-height: 1.62;
   color: #d6e2ef;
 }
+.brief-controls { margin: 14px 0 0; padding: 10px 12px; border-radius: 10px; background: rgba(127, 208, 255, 0.06); border: 1px solid rgba(127, 208, 255, 0.2); }
+.brief-controls h3 { margin: 0 0 6px; font-size: 14px; }
+.brief-controls ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.brief-controls li { line-height: 1.45; }
+.brief-controls kbd { margin-right: 4px; }
+.brief-controls p { margin: 8px 0 0; font-size: 12px; }
 .brief-actions {
   margin-top: 18px;
 }

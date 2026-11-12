@@ -4,6 +4,11 @@ Il menu **Comandi** del simulatore contiene l’elenco completo delle associazio
 configurazione di joystick e gamepad; la stessa lista è nell’**Aiuto (F12)**, con la ricerca. I comandi
 si attivano durante il volo; i campi di testo e i menu mantengono il normale comportamento della tastiera.
 
+In volo, **F8** o il pulsante **ⓘ COMANDI** in alto aprono la guida ai comandi senza fermare il volo:
+spiega cosa fanno i pulsanti della schermata (SAS, RCS, modi STAB/PRO/RETRO…, NAV, MAPPA, VISTA) e gli
+strumenti, e in missione elenca per primi i comandi utili per quella missione, gli stessi mostrati nel
+briefing sotto «Comandi utili». Passando il mouse su un pulsante compare la sua spiegazione con il tasto.
+
 ## Assetto e traslazione
 
 | Funzione | Comando |
@@ -73,6 +78,7 @@ il tempo torna reale prima di un nodo, di un incontro o dell’ingresso in atmos
 | Strumenti completi / essenziali / nascosti · simboli HUD | U · Maiusc + U |
 | Ripristina la vista | Backspace |
 | Riavvia | Ctrl + ; |
+| Guida ai comandi della schermata di volo e della missione | F8 |
 | Aiuto, comandi e glossario | F12 |
 
 ## Mouse

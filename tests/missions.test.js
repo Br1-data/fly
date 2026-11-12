@@ -23,6 +23,18 @@ test('mission catalogue is complete and consistent', () => {
   for (const c of CATEGORIES.filter((c) => c.id !== 'all')) assert.ok(MISSIONS.some((m) => m.category === c.id), `empty category ${c.id}`);
 });
 
+test('every mission lists the commands it needs, with SAS modes that exist', async () => {
+  const { SAS_HELP, TOP_BUTTONS, tip } = await import('../src/ui/flight-commands.js');
+  const { SAS_MODES } = await import('../src/sim/assist.js');
+  for (const m of MISSIONS) {
+    assert.ok(m.controls.length >= 3, `${m.id}: controls`);
+    assert.ok(m.controls.every((c) => c.keys && c.text), m.id);
+  }
+  for (const mode of SAS_MODES) assert.ok(SAS_HELP[mode.id]?.text, `SAS ${mode.id}: instructions`);
+  for (const id of ['sas', 'rcs']) assert.ok(SAS_HELP[id].label && SAS_HELP[id].keys, id);
+  assert.ok(Object.values(TOP_BUTTONS).every((b) => b.label && b.keys && tip(b).includes(b.keys)));
+});
+
 test('every mission starts and flies a few seconds without failing', async () => {
   for (const m of MISSIONS) {
     const sim = await newSim(m.setup);

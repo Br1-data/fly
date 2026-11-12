@@ -140,6 +140,7 @@ La GitHub Action `.github/workflows/build-windows.yml` esegue i test e crea il p
 | Accelera / rallenta il tempo · tempo reale | . / , · / |
 | Viste · cockpit · esterna | C · F9 · F10 |
 | Pausa · menu · aiuto | P · Esc · F12 |
+| Guida ai comandi in volo (pulsante ⓘ COMANDI) | F8 |
 
 L’elenco completo è nel gioco (menu **Comandi**) e in [`docs/CONTROLS.md`](docs/CONTROLS.md); gamepad e
 joystick sono configurabili.
